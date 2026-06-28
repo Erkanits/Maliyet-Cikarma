@@ -15,6 +15,34 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown(
+    """
+    <style>
+    .st-key-save_part_action button {
+        background-color: #198754 !important;
+        border-color: #198754 !important;
+        color: white !important;
+        font-weight: 700 !important;
+    }
+    .st-key-update_part_action button {
+        background-color: #dc3545 !important;
+        border-color: #dc3545 !important;
+        color: white !important;
+        font-weight: 700 !important;
+    }
+    .st-key-save_part_action button:hover {
+        background-color: #157347 !important;
+        border-color: #146c43 !important;
+    }
+    .st-key-update_part_action button:hover {
+        background-color: #bb2d3b !important;
+        border-color: #b02a37 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # =========================================================
 # GİRİŞ VE VERİTABANI
@@ -218,15 +246,15 @@ def get_labor_source(item):
 # BAŞLIK, LOGO VE KUR
 # =========================================================
 def render_header(settings):
-    logo_col, title_col = st.columns([1, 4], vertical_alignment="center")
+    logo_col, info_col = st.columns([1, 4], vertical_alignment="center")
+
+    logo_value = settings.get("logo_base64")
 
     with logo_col:
-        logo_value = settings.get("logo_base64")
-
         if logo_value:
             try:
                 logo_bytes = base64.b64decode(logo_value)
-                st.image(io.BytesIO(logo_bytes), width=210)
+                st.image(io.BytesIO(logo_bytes), width=170)
             except Exception:
                 st.warning("Logo görüntülenemedi.")
 
@@ -234,45 +262,60 @@ def render_header(settings):
 
         with st.popover(popover_title, use_container_width=True):
             st.caption(
-                "Önerilen logo: şeffaf PNG, yaklaşık 800 × 250 px, "
-                "3:1 oranında ve 2 MB'tan küçük."
+                "Önerilen logo: kare formatta şeffaf PNG, "
+                "1024 × 1024 px ve 2 MB'tan küçük."
             )
 
-            logo_file = st.file_uploader(
-                "Yeni PNG veya JPEG seç",
-                type=["png", "jpg", "jpeg"],
-                key="logo_file",
+            logo_action = st.radio(
+                "İşlem",
+                ["Değiştir", "Kaldır"] if logo_value else ["Yükle"],
+                horizontal=True,
+                key="logo_action",
             )
 
-            if st.button(
-                "Logoyu kaydet / değiştir",
-                key="save_logo",
-                use_container_width=True,
-            ):
-                if logo_file is None:
-                    st.warning("Önce bir logo dosyası seç.")
-                elif logo_file.size > 2_000_000:
-                    st.error("Logo dosyası 2 MB'tan küçük olmalı.")
-                else:
-                    encoded = base64.b64encode(
-                        logo_file.getvalue()
-                    ).decode("utf-8")
-                    update_settings(logo_base64=encoded)
-                    st.success("Logo kaydedildi.")
+            if logo_action in {"Yükle", "Değiştir"}:
+                logo_file = st.file_uploader(
+                    "Kare PNG veya JPEG seç",
+                    type=["png", "jpg", "jpeg"],
+                    key="logo_file",
+                )
+
+                if st.button(
+                    "Logoyu kaydet",
+                    key="save_logo",
+                    use_container_width=True,
+                ):
+                    if logo_file is None:
+                        st.warning("Önce bir logo dosyası seç.")
+                    elif logo_file.size > 2_000_000:
+                        st.error("Logo dosyası 2 MB'tan küçük olmalı.")
+                    else:
+                        encoded = base64.b64encode(
+                            logo_file.getvalue()
+                        ).decode("utf-8")
+                        update_settings(logo_base64=encoded)
+                        st.success("Logo kaydedildi.")
+                        st.rerun()
+
+            elif logo_action == "Kaldır":
+                st.warning("Logo kalıcı olarak kaldırılacak.")
+                if st.button(
+                    "Kaldırmayı onayla",
+                    key="remove_logo",
+                    use_container_width=True,
+                ):
+                    update_settings(logo_base64=None)
                     st.rerun()
 
-            if logo_value and st.button(
-                "Logoyu kaldır",
-                key="remove_logo",
-                use_container_width=True,
-            ):
-                update_settings(logo_base64=None)
-                st.rerun()
-
-    with title_col:
-        st.title("ITSSystems Cost Calculator")
-        st.caption(
-            "Malzeme, kaplama, ölçüm, ek işlem ve işçilik maliyet hesaplama uygulaması"
+    with info_col:
+        st.markdown(
+            """
+            <div style="font-size:1.05rem; line-height:1.55; color:#b9bec8; max-width:900px;">
+            Parça bazında malzeme, kaplama, ölçüm, ek işlem ve işçilik maliyetlerini
+            hesaplayın; sonuçları EUR ve TL olarak kaydedin, güncelleyin ve Excel'e aktarın.
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
 
@@ -514,12 +557,12 @@ labor_map = {item["id"]: item for item in labors}
 render_header(settings)
 render_rate(settings)
 
-tab_prices, tab_labors, tab_list, tab_cost = st.tabs(
+tab_prices, tab_labors, tab_cost, tab_list = st.tabs(
     [
         "Fiyat Tanımları",
         "İşçilik Maliyetleri",
-        "Liste",
         "Parça Maliyeti",
+        "Liste",
     ]
 )
 
@@ -964,8 +1007,7 @@ with tab_list:
         )
 
         st.caption(
-            "Bu bölüm yalnızca listeleme içindir. Parça değişikliklerini "
-            "Parça Maliyeti sekmesindeki Güncelle seçeneğinden yapabilirsin."
+            "Kaydedilen parçalar yalnızca bu listede görüntülenir."
         )
 
         st.download_button(
@@ -983,90 +1025,45 @@ with tab_list:
 # =========================================================
 # PARÇA MALİYETİ: YENİ KAYIT VE GÜNCELLEME
 # =========================================================
+# =========================================================
+# PARÇA MALİYETİ: ÖNİZLEME VE LİSTEYE KAYDETME
+# =========================================================
 with tab_cost:
     st.subheader("Parça Maliyeti")
-
-    mode = st.radio(
-        "İşlem",
-        ["Yeni Parça", "Mevcut Parçayı Güncelle"],
-        horizontal=True,
+    st.caption(
+        "Kalemleri seç, bilgileri gir ve Güncelle butonuyla fiyatı hesapla. "
+        "Parçayı Kaydet dediğinde kayıt Liste sekmesine aktarılır ve bu form temizlenir."
     )
 
-    selected_part = None
-    current_items = []
-    current_labors = []
+    if st.session_state.pop("part_saved_success", False):
+        st.success("Parça Liste bölümüne kaydedildi.")
 
-    if mode == "Mevcut Parçayı Güncelle":
-        if not parts:
-            st.warning("Güncellenecek kayıtlı parça bulunmuyor.")
-            st.stop()
+    form_version = int(st.session_state.get("part_form_version", 1))
+    context_id = f"new_{form_version}"
+    selection_key = f"applied_part_selections_{context_id}"
+    preview_key = f"part_cost_preview_{context_id}"
 
-        part_options = {
-            f'{part["parca_adi"]} — {part["adet"]} adet': part
-            for part in parts
+    if selection_key not in st.session_state:
+        st.session_state[selection_key] = {
+            "price_ids": [],
+            "labor_ids": [],
         }
 
-        selected_part_label = st.selectbox(
-            "Güncellenecek parça",
-            list(part_options.keys()),
-        )
-        selected_part = part_options[selected_part_label]
-        current_items = get_part_items(selected_part["id"])
-        current_labors = get_part_labors(selected_part["id"])
+    stored_selections = st.session_state[selection_key]
 
-    default_cost_count = (
-        len(current_items)
-        if selected_part is not None
-        else 1
-    )
-    default_labor_count = (
-        len(current_labors)
-        if selected_part is not None
-        else 0
-    )
+    category_order = [
+        "Malzeme",
+        "Kaplama",
+        "Ek İşlem",
+        "Ölçüm",
+    ]
 
-    count_col1, count_col2 = st.columns(2)
-
-    with count_col1:
-        cost_count = st.number_input(
-            "Maliyet kalemi sayısı",
-            min_value=0,
-            max_value=20,
-            value=default_cost_count,
-            step=1,
-            key=(
-                f'cost_count_{selected_part["id"]}'
-                if selected_part
-                else "new_cost_count"
-            ),
-        )
-
-    with count_col2:
-        labor_count = st.number_input(
-            "İşçilik kalemi sayısı",
-            min_value=0,
-            max_value=20,
-            value=default_labor_count,
-            step=1,
-            key=(
-                f'labor_count_{selected_part["id"]}'
-                if selected_part
-                else "new_labor_count"
-            ),
-        )
-
-    if not prices and cost_count > 0:
-        st.warning(
-            "Maliyet kalemi eklemek için önce Fiyat Tanımları bölümünden kayıt oluştur."
-        )
-
-    if not labors and labor_count > 0:
-        st.warning(
-            "İşçilik eklemek için önce İşçilik Maliyetleri bölümünden kayıt oluştur."
-        )
-
-    price_labels = []
+    price_labels_by_category = {
+        category: []
+        for category in category_order
+    }
     price_lookup = {}
+    price_id_to_label = {}
 
     for item in prices:
         currency, source_value = get_price_source(item)
@@ -1076,14 +1073,19 @@ with tab_cost:
             exchange_rate,
         )
         label = (
-            f'{item["kategori"]} — {item["ad"]} — '
+            f'{item["ad"]} — '
             f'{format_eur(eur_value)} / {format_tl(tl_value)}'
         )
-        price_labels.append(label)
+        price_labels_by_category.setdefault(
+            item["kategori"],
+            [],
+        ).append(label)
         price_lookup[label] = item
+        price_id_to_label[item["id"]] = label
 
     labor_labels = []
     labor_lookup = {}
+    labor_id_to_label = {}
 
     for item in labors:
         currency, source_value = get_labor_source(item)
@@ -1094,107 +1096,163 @@ with tab_cost:
         )
         label = (
             f'{item["ad"]} — '
-            f'{format_eur(eur_value)}/saat — '
+            f'{format_eur(eur_value)}/saat / '
             f'{format_tl(tl_value)}/saat'
         )
         labor_labels.append(label)
         labor_lookup[label] = item
+        labor_id_to_label[item["id"]] = label
 
-    with st.form(
-        (
-            f'part_form_{selected_part["id"]}'
-            if selected_part
-            else "new_part_form"
+    st.markdown("### Kalemleri seç")
+    st.caption(
+        "Malzeme, kaplama, ek işlem, ölçüm ve işçilik seçimlerini yapıp "
+        "bir kez Seçimleri uygula butonuna bas."
+    )
+
+    with st.form(f"selection_form_{context_id}"):
+        selection_columns = st.columns(2)
+        selected_category_labels = {}
+
+        for index, category in enumerate(category_order):
+            with selection_columns[index % 2]:
+                default_labels = [
+                    price_id_to_label[price_id]
+                    for price_id in stored_selections["price_ids"]
+                    if price_id in price_id_to_label
+                    and price_lookup[
+                        price_id_to_label[price_id]
+                    ]["kategori"] == category
+                ]
+
+                selected_category_labels[category] = st.multiselect(
+                    category,
+                    price_labels_by_category.get(category, []),
+                    default=default_labels,
+                    key=f"select_{category}_{context_id}",
+                )
+
+        default_labor_labels = [
+            labor_id_to_label[labor_id]
+            for labor_id in stored_selections["labor_ids"]
+            if labor_id in labor_id_to_label
+        ]
+
+        selected_labor_labels = st.multiselect(
+            "İşçilikler",
+            labor_labels,
+            default=default_labor_labels,
+            key=f"select_labors_{context_id}",
         )
-    ):
+
+        apply_selections = st.form_submit_button(
+            "Seçimleri uygula",
+            use_container_width=True,
+        )
+
+        if apply_selections:
+            selected_price_ids = []
+            for labels in selected_category_labels.values():
+                selected_price_ids.extend(
+                    price_lookup[label]["id"]
+                    for label in labels
+                )
+
+            selected_labor_ids = [
+                labor_lookup[label]["id"]
+                for label in selected_labor_labels
+            ]
+
+            st.session_state[selection_key] = {
+                "price_ids": selected_price_ids,
+                "labor_ids": selected_labor_ids,
+            }
+            st.session_state.pop(preview_key, None)
+            st.rerun()
+
+    applied_price_ids = st.session_state[selection_key]["price_ids"]
+    applied_labor_ids = st.session_state[selection_key]["labor_ids"]
+
+    selected_price_items = [
+        item
+        for item in prices
+        if item["id"] in applied_price_ids
+    ]
+    selected_price_items.sort(
+        key=lambda item: (
+            category_order.index(item["kategori"])
+            if item["kategori"] in category_order
+            else 99,
+            item["ad"],
+        )
+    )
+
+    selected_labor_items = [
+        item
+        for item in labors
+        if item["id"] in applied_labor_ids
+    ]
+
+    st.divider()
+    st.markdown("### Parça bilgileri ve süreler")
+
+    preview = st.session_state.get(preview_key)
+
+    with st.form(f"part_details_form_{context_id}"):
         top_col1, top_col2 = st.columns([3, 1])
 
         with top_col1:
             part_name = st.text_input(
                 "Parça adı",
-                value=(
-                    selected_part["parca_adi"]
-                    if selected_part
-                    else ""
-                ),
+                key=f"part_name_{context_id}",
             )
 
         with top_col2:
             production_quantity = st.number_input(
                 "Üretilecek adet",
                 min_value=1,
-                value=(
-                    int(selected_part["adet"])
-                    if selected_part
-                    else 1
-                ),
+                value=1,
                 step=1,
+                key=f"production_quantity_{context_id}",
             )
 
         selected_cost_rows = []
 
-        if cost_count > 0 and price_labels:
-            st.markdown("### Maliyet Kalemleri")
+        if selected_price_items:
+            st.markdown("#### Malzeme, kaplama, ek işlem ve ölçüm")
 
-            for index in range(int(cost_count)):
-                current_row = (
-                    current_items[index]
-                    if index < len(current_items)
-                    else None
-                )
-
-                default_price_index = 0
-                default_quantity = 1
-
-                if current_row:
-                    default_quantity = int(
-                        current_row.get("miktar") or 1
-                    )
-                    current_definition_id = (
-                        current_row["fiyat_tanimi_id"]
-                    )
-
-                    for label_index, label in enumerate(price_labels):
-                        if (
-                            price_lookup[label]["id"]
-                            == current_definition_id
-                        ):
-                            default_price_index = label_index
-                            break
-
+            for item in selected_price_items:
                 row_col1, row_col2 = st.columns([4, 1])
 
                 with row_col1:
-                    selected_label = st.selectbox(
-                        f"Kalem {index + 1}",
-                        price_labels,
-                        index=default_price_index,
-                        key=(
-                            f'part_price_{selected_part["id"]}_{index}'
-                            if selected_part
-                            else f'new_part_price_{index}'
+                    currency, source_value = get_price_source(item)
+                    eur_value, tl_value = convert_price(
+                        source_value,
+                        currency,
+                        exchange_rate,
+                    )
+                    st.text_input(
+                        item["kategori"],
+                        value=(
+                            f'{item["ad"]} — '
+                            f'{format_eur(eur_value)} / '
+                            f'{format_tl(tl_value)}'
                         ),
+                        disabled=True,
+                        key=f'price_display_{context_id}_{item["id"]}',
                     )
 
                 with row_col2:
                     item_quantity = st.number_input(
-                        f"Adet {index + 1}",
+                        "Adet",
                         min_value=1,
-                        value=default_quantity,
+                        value=1,
                         step=1,
-                        key=(
-                            f'part_qty_{selected_part["id"]}_{index}'
-                            if selected_part
-                            else f'new_part_qty_{index}'
-                        ),
+                        key=f'price_qty_{context_id}_{item["id"]}',
                     )
-
-                definition = price_lookup[selected_label]
-                currency, source_value = get_price_source(definition)
 
                 selected_cost_rows.append(
                     {
-                        "definition": definition,
+                        "definition": item,
                         "quantity": int(item_quantity),
                         "currency": currency,
                         "source_value": source_value,
@@ -1203,208 +1261,268 @@ with tab_cost:
 
         selected_labor_rows = []
 
-        if labor_count > 0 and labor_labels:
-            st.markdown("### İşçilik Kalemleri")
+        if selected_labor_items:
+            st.markdown("#### İşçilik kalemleri")
 
-            for index in range(int(labor_count)):
-                current_row = (
-                    current_labors[index]
-                    if index < len(current_labors)
-                    else None
-                )
-
-                default_labor_index = 0
-                default_duration_type = "Saat"
-                default_duration_value = 1.0
-
-                if current_row:
-                    current_definition_id = (
-                        current_row["iscilik_tanimi_id"]
-                    )
-                    default_duration_value = float(
-                        current_row.get("saat") or 0
-                    )
-
-                    for label_index, label in enumerate(labor_labels):
-                        if (
-                            labor_lookup[label]["id"]
-                            == current_definition_id
-                        ):
-                            default_labor_index = label_index
-                            break
-
+            for item in selected_labor_items:
                 row_col1, row_col2, row_col3 = st.columns(
                     [4, 1.2, 1.4]
                 )
 
                 with row_col1:
-                    selected_labor_label = st.selectbox(
-                        f"İşçilik {index + 1}",
-                        labor_labels,
-                        index=default_labor_index,
-                        key=(
-                            f'part_labor_{selected_part["id"]}_{index}'
-                            if selected_part
-                            else f'new_part_labor_{index}'
+                    currency, source_value = get_labor_source(item)
+                    eur_value, tl_value = convert_price(
+                        source_value,
+                        currency,
+                        exchange_rate,
+                    )
+                    st.text_input(
+                        "İşçilik",
+                        value=(
+                            f'{item["ad"]} — '
+                            f'{format_eur(eur_value)}/saat / '
+                            f'{format_tl(tl_value)}/saat'
                         ),
+                        disabled=True,
+                        key=f'labor_display_{context_id}_{item["id"]}',
                     )
 
                 with row_col2:
-                    duration_type = st.selectbox(
-                        f"Süre birimi {index + 1}",
+                    duration_unit = st.selectbox(
+                        "Süre birimi",
                         ["Saat", "Dakika"],
-                        index=(
-                            0
-                            if default_duration_type == "Saat"
-                            else 1
-                        ),
-                        key=(
-                            f'part_duration_type_'
-                            f'{selected_part["id"]}_{index}'
-                            if selected_part
-                            else f'new_duration_type_{index}'
-                        ),
+                        key=f'labor_unit_{context_id}_{item["id"]}',
                     )
 
                 with row_col3:
                     duration_value = st.number_input(
-                        f"Süre {index + 1}",
+                        "Süre",
                         min_value=0.0,
-                        value=default_duration_value,
-                        step=1.0 if duration_type == "Dakika" else 0.25,
-                        format="%.4f",
-                        key=(
-                            f'part_duration_'
-                            f'{selected_part["id"]}_{index}'
-                            if selected_part
-                            else f'new_duration_{index}'
+                        value=1.0,
+                        step=(
+                            1.0
+                            if duration_unit == "Dakika"
+                            else 0.25
                         ),
+                        format="%.4f",
+                        key=f'labor_duration_{context_id}_{item["id"]}',
                     )
 
                 hours = (
                     float(duration_value) / 60
-                    if duration_type == "Dakika"
+                    if duration_unit == "Dakika"
                     else float(duration_value)
                 )
 
-                definition = labor_lookup[selected_labor_label]
-                currency, source_value = get_labor_source(definition)
-
                 selected_labor_rows.append(
                     {
-                        "definition": definition,
+                        "definition": item,
                         "hours": hours,
                         "currency": currency,
                         "source_value": source_value,
                     }
                 )
 
-        submit_label = (
-            "Güncelle"
-            if selected_part
-            else "Parçayı kaydet"
-        )
+        if not selected_cost_rows and not selected_labor_rows:
+            st.info(
+                "Önce yukarıdaki dropdown menülerden en az bir kalem seçip "
+                "Seçimleri uygula butonuna bas."
+            )
 
-        submitted = st.form_submit_button(
-            submit_label,
-            type="primary",
-            use_container_width=True,
-        )
+        def create_draft():
+            single_eur = 0.0
+            single_tl = 0.0
 
-        if submitted:
-            if not part_name.strip():
+            cost_signature = []
+            for row in selected_cost_rows:
+                unit_eur, unit_tl = convert_price(
+                    row["source_value"],
+                    row["currency"],
+                    exchange_rate,
+                )
+                single_eur += unit_eur * row["quantity"]
+                single_tl += unit_tl * row["quantity"]
+                cost_signature.append(
+                    (
+                        int(row["definition"]["id"]),
+                        int(row["quantity"]),
+                        row["currency"],
+                        round(float(row["source_value"]), 8),
+                    )
+                )
+
+            labor_signature = []
+            for row in selected_labor_rows:
+                hourly_eur, hourly_tl = convert_price(
+                    row["source_value"],
+                    row["currency"],
+                    exchange_rate,
+                )
+                single_eur += hourly_eur * row["hours"]
+                single_tl += hourly_tl * row["hours"]
+                labor_signature.append(
+                    (
+                        int(row["definition"]["id"]),
+                        round(float(row["hours"]), 8),
+                        row["currency"],
+                        round(float(row["source_value"]), 8),
+                    )
+                )
+
+            signature = (
+                part_name.strip(),
+                int(production_quantity),
+                round(float(exchange_rate), 8),
+                tuple(cost_signature),
+                tuple(labor_signature),
+            )
+
+            return {
+                "part_name": part_name.strip(),
+                "production_quantity": int(production_quantity),
+                "cost_rows": selected_cost_rows,
+                "labor_rows": selected_labor_rows,
+                "single_eur": single_eur,
+                "single_tl": single_tl,
+                "total_eur": single_eur * int(production_quantity),
+                "total_tl": single_tl * int(production_quantity),
+                "signature": signature,
+            }
+
+        update_col, save_col = st.columns(2)
+
+        with update_col:
+            with st.container(key="update_part_action"):
+                update_clicked = st.form_submit_button(
+                    "Güncelle",
+                    use_container_width=True,
+                )
+
+        with save_col:
+            with st.container(key="save_part_action"):
+                save_clicked = st.form_submit_button(
+                    "Parçayı Kaydet",
+                    use_container_width=True,
+                    disabled=preview is None,
+                )
+
+        current_draft = None
+        if update_clicked or save_clicked:
+            current_draft = create_draft()
+
+        if update_clicked:
+            if not current_draft["part_name"]:
                 st.error("Parça adı boş bırakılamaz.")
-            elif not selected_cost_rows and not selected_labor_rows:
+            elif (
+                not current_draft["cost_rows"]
+                and not current_draft["labor_rows"]
+            ):
                 st.error(
-                    "En az bir maliyet veya işçilik kalemi ekle."
+                    "En az bir maliyet veya işçilik kalemi seç."
                 )
             else:
-                if selected_part:
-                    part_id = selected_part["id"]
+                st.session_state[preview_key] = current_draft
+                st.rerun()
 
-                    db.table("parcalar").update(
-                        {
-                            "parca_adi": part_name.strip(),
-                            "adet": int(production_quantity),
-                        }
-                    ).eq("id", part_id).execute()
+        if save_clicked:
+            saved_preview = st.session_state.get(preview_key)
 
-                    db.table("parca_kalemleri").delete().eq(
-                        "parca_id",
-                        part_id,
-                    ).execute()
+            if saved_preview is None:
+                st.error(
+                    "Önce Güncelle butonuna basarak fiyatı hesapla."
+                )
+            elif current_draft["signature"] != saved_preview["signature"]:
+                st.error(
+                    "Bilgiler hesaplamadan sonra değişmiş. "
+                    "Önce tekrar Güncelle butonuna bas."
+                )
+            else:
+                result = db.table("parcalar").insert(
+                    {
+                        "parca_adi": saved_preview["part_name"],
+                        "adet": saved_preview["production_quantity"],
+                    }
+                ).execute()
+                part_id = result.data[0]["id"]
 
-                    db.table("parca_iscilik_kalemleri").delete().eq(
-                        "parca_id",
-                        part_id,
-                    ).execute()
-                else:
-                    result = db.table("parcalar").insert(
-                        {
-                            "parca_adi": part_name.strip(),
-                            "adet": int(production_quantity),
-                        }
-                    ).execute()
-                    part_id = result.data[0]["id"]
+                if saved_preview["cost_rows"]:
+                    cost_rows = []
 
-                if selected_cost_rows:
-                    cost_insert_rows = []
-
-                    for row in selected_cost_rows:
+                    for row in saved_preview["cost_rows"]:
                         eur_snapshot, _ = convert_price(
                             row["source_value"],
                             row["currency"],
                             exchange_rate,
                         )
 
-                        cost_insert_rows.append(
+                        cost_rows.append(
                             {
                                 "parca_id": part_id,
                                 "fiyat_tanimi_id": (
                                     row["definition"]["id"]
                                 ),
                                 "miktar": row["quantity"],
-                                "kaynak_para_birimi": (
-                                    row["currency"]
-                                ),
-                                "kaynak_birim_fiyat": (
-                                    row["source_value"]
-                                ),
+                                "kaynak_para_birimi": row["currency"],
+                                "kaynak_birim_fiyat": row["source_value"],
                                 "birim_fiyat_eur": eur_snapshot,
                             }
                         )
 
                     db.table("parca_kalemleri").insert(
-                        cost_insert_rows
+                        cost_rows
                     ).execute()
 
-                if selected_labor_rows:
-                    labor_insert_rows = []
+                if saved_preview["labor_rows"]:
+                    labor_rows = []
 
-                    for row in selected_labor_rows:
-                        labor_insert_rows.append(
+                    for row in saved_preview["labor_rows"]:
+                        labor_rows.append(
                             {
                                 "parca_id": part_id,
                                 "iscilik_tanimi_id": (
                                     row["definition"]["id"]
                                 ),
                                 "saat": row["hours"],
-                                "kaynak_para_birimi": (
-                                    row["currency"]
-                                ),
-                                "kaynak_saatlik_ucret": (
-                                    row["source_value"]
-                                ),
+                                "kaynak_para_birimi": row["currency"],
+                                "kaynak_saatlik_ucret": row["source_value"],
                             }
                         )
 
                     db.table("parca_iscilik_kalemleri").insert(
-                        labor_insert_rows
+                        labor_rows
                     ).execute()
 
-                st.success(
-                    "Parça güncellendi."
-                    if selected_part
-                    else "Parça kaydedildi."
-                )
+                st.session_state.pop(preview_key, None)
+                st.session_state.pop(selection_key, None)
+                st.session_state["part_form_version"] = form_version + 1
+                st.session_state["part_saved_success"] = True
                 st.rerun()
+
+    preview = st.session_state.get(preview_key)
+
+    if preview is not None:
+        st.divider()
+        st.markdown("### Hesaplanan Fiyat")
+
+        metric1, metric2, metric3, metric4 = st.columns(4)
+        metric1.metric(
+            "Tek parça EUR",
+            format_eur(preview["single_eur"]),
+        )
+        metric2.metric(
+            "Tek parça TL",
+            format_tl(preview["single_tl"]),
+        )
+        metric3.metric(
+            "Genel toplam EUR",
+            format_eur(preview["total_eur"]),
+        )
+        metric4.metric(
+            "Genel toplam TL",
+            format_tl(preview["total_tl"]),
+        )
+
+        st.caption(
+            "Bu fiyat yalnızca Güncelle butonuna bastıktan sonra hesaplanır. "
+            "Bir alanı değiştirirsen kaydetmeden önce yeniden Güncelle butonuna bas."
+        )
