@@ -872,122 +872,6 @@ with tab_labors:
 # =========================================================
 # LİSTE
 # =========================================================
-with tab_list:
-    st.subheader("Parça Listesi")
-
-    all_part_items = get_part_items()
-    all_part_labors = get_part_labors()
-
-    if not parts:
-        st.info("Henüz kayıtlı parça bulunmuyor.")
-    else:
-        list_rows = []
-
-        for part in parts:
-            part_id = part["id"]
-            quantity = int(part["adet"])
-            single_eur = 0.0
-            single_tl = 0.0
-            operations = []
-
-            for row in [
-                x for x in all_part_items
-                if x["parca_id"] == part_id
-            ]:
-                definition = price_map.get(
-                    row["fiyat_tanimi_id"],
-                    {},
-                )
-                currency = row.get("kaynak_para_birimi") or "EUR"
-                source_value = row.get("kaynak_birim_fiyat")
-
-                if source_value is None:
-                    source_value = row.get("birim_fiyat_eur", 0)
-
-                unit_eur, unit_tl = convert_price(
-                    float(source_value or 0),
-                    currency,
-                    exchange_rate,
-                )
-                item_quantity = int(row.get("miktar") or 0)
-                line_eur = unit_eur * item_quantity
-                line_tl = unit_tl * item_quantity
-
-                single_eur += line_eur
-                single_tl += line_tl
-
-                operations.append(
-                    f'{definition.get("ad", "")} '
-                    f'({format_eur(line_eur)} / {format_tl(line_tl)})'
-                )
-
-            for row in [
-                x for x in all_part_labors
-                if x["parca_id"] == part_id
-            ]:
-                definition = labor_map.get(
-                    row["iscilik_tanimi_id"],
-                    {},
-                )
-                currency = row.get("kaynak_para_birimi") or "EUR"
-                source_value = float(
-                    row.get("kaynak_saatlik_ucret") or 0
-                )
-                hourly_eur, hourly_tl = convert_price(
-                    source_value,
-                    currency,
-                    exchange_rate,
-                )
-                hours = float(row.get("saat") or 0)
-                line_eur = hourly_eur * hours
-                line_tl = hourly_tl * hours
-
-                single_eur += line_eur
-                single_tl += line_tl
-
-                operations.append(
-                    f'{definition.get("ad", "")} '
-                    f'({format_eur(line_eur)} / {format_tl(line_tl)})'
-                )
-
-            list_rows.append(
-                {
-                    "Parça Adı": part["parca_adi"],
-                    "Adet": quantity,
-                    "İşlemler": " + ".join(operations),
-                    "Birim Fiyat EUR": format_eur(single_eur),
-                    "Birim Fiyat TL": format_tl(single_tl),
-                    "Toplam Fiyat EUR": format_eur(
-                        single_eur * quantity
-                    ),
-                    "Toplam Fiyat TL": format_tl(
-                        single_tl * quantity
-                    ),
-                }
-            )
-
-        st.dataframe(
-            pd.DataFrame(list_rows),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.caption(
-            "Kaydedilen parçalar yalnızca bu listede görüntülenir."
-        )
-
-        st.download_button(
-            "Dosyayı indir (.xls)",
-            data=build_xls(exchange_rate),
-            file_name=(
-                f"ITSSystems_Cost_Calculator_"
-                f"{datetime.now():%Y-%m-%d}.xls"
-            ),
-            mime="application/vnd.ms-excel",
-            type="primary",
-        )
-
-
 # =========================================================
 # PARÇA MALİYETİ
 # =========================================================
@@ -1556,4 +1440,5 @@ with tab_list:
             file_name=f"ITSSystems_Cost_Calculator_{datetime.now():%Y-%m-%d}.xls",
             mime="application/vnd.ms-excel",
             type="primary",
+            key="download_cost_list_xls",
         )
