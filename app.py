@@ -38,6 +38,23 @@ st.markdown(
         background-color: #bb2d3b !important;
         border-color: #b02a37 !important;
     }
+    .st-key-unavailable_materials_area {
+        background-color: rgba(220, 53, 69, 0.13);
+        border: 1px solid #dc3545;
+        border-radius: 12px;
+        padding: 18px;
+        margin-top: 18px;
+    }
+    .st-key-unavailable_materials_area button {
+        background-color: #dc3545 !important;
+        border-color: #dc3545 !important;
+        color: white !important;
+        font-weight: 700 !important;
+    }
+    .st-key-unavailable_materials_area button:hover {
+        background-color: #bb2d3b !important;
+        border-color: #b02a37 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -244,6 +261,40 @@ def get_part_labors(part_id=None):
         query = query.eq("parca_id", part_id)
 
     return query.execute().data or []
+
+
+
+def get_supplier_materials():
+    response = (
+        db.table("tedarikci_malzemeleri")
+        .select("*")
+        .order("malzeme_adi")
+        .order("tedarikci_adi")
+        .execute()
+    )
+    return response.data or []
+
+
+def get_unavailable_materials():
+    response = (
+        db.table("bulunamayan_malzemeler")
+        .select("*")
+        .order("malzeme_adi")
+        .execute()
+    )
+    return response.data or []
+
+
+def normalize_web_url(value):
+    url = (value or "").strip()
+
+    if not url:
+        return ""
+
+    if not url.lower().startswith(("http://", "https://")):
+        url = f"https://{url}"
+
+    return url
 
 
 def get_price_source(item):
@@ -554,12 +605,19 @@ labor_map = {item["id"]: item for item in labors}
 render_header(settings)
 render_rate(settings)
 
-tab_prices, tab_labors, tab_cost, tab_list = st.tabs(
+(
+    tab_prices,
+    tab_labors,
+    tab_cost,
+    tab_list,
+    tab_suppliers,
+) = st.tabs(
     [
         "Fiyat Tanımları",
         "İşçilik Maliyetleri",
         "Parça Maliyeti",
         "Liste",
+        "Tedarikçi Listesi",
     ]
 )
 
@@ -2074,3 +2132,242 @@ with tab_list:
                 key="open_delete_all_parts_dialog",
             ):
                 confirm_delete_all_parts()
+
+
+# =========================================================
+# TEDARİKÇİ LİSTESİ
+# =========================================================
+with tab_suppliers:
+    st.subheader("Tedarikçi Listesi")
+
+    st.markdown("### Yeni tedarikçi kaydı")
+
+    with st.form(
+        "new_supplier_material_form",
+        clear_on_submit=True,
+    ):
+        row1_col1, row1_col2, row1_col3 = st.columns(
+            [2.5, 1.2, 1]
+        )
+
+        with row1_col1:
+            supplier_material_name = st.text_input(
+                "Malzeme adı"
+            )
+
+        with row1_col2:
+            supplier_unit_price_text = st.text_input(
+                "Birim fiyat",
+                value="0,00",
+            )
+
+        with row1_col3:
+            supplier_currency = st.selectbox(
+                "Para birimi",
+                ["EUR", "TL"],
+            )
+
+        row2_col1, row2_col2 = st.columns(2)
+
+        with row2_col1:
+            supplier_name = st.text_input(
+                "Tedarikçi adı"
+            )
+
+        with row2_col2:
+            supplier_web_link = st.text_input(
+                "Tedarikçi web linki",
+                placeholder="https://firma.com",
+            )
+
+        supplier_description = st.text_area(
+            "Açıklama",
+            placeholder="Malzeme, stok, termin veya diğer notlar",
+            height=100,
+        )
+
+        save_supplier = st.form_submit_button(
+            "Tedarikçi kaydını ekle",
+            type="primary",
+            use_container_width=True,
+        )
+
+        if save_supplier:
+            supplier_unit_price = parse_decimal(
+                supplier_unit_price_text
+            )
+
+            if not supplier_material_name.strip():
+                st.error("Malzeme adı boş bırakılamaz.")
+            elif not supplier_name.strip():
+                st.error("Tedarikçi adı boş bırakılamaz.")
+            elif (
+                supplier_unit_price is None
+                or supplier_unit_price < 0
+            ):
+                st.error("Geçerli bir birim fiyat gir.")
+            else:
+                db.table("tedarikci_malzemeleri").insert(
+                    {
+                        "malzeme_adi": (
+                            supplier_material_name.strip()
+                        ),
+                        "birim_fiyat": supplier_unit_price,
+                        "para_birimi": supplier_currency,
+                        "tedarikci_adi": supplier_name.strip(),
+                        "web_linki": normalize_web_url(
+                            supplier_web_link
+                        ),
+                        "aciklama": (
+                            supplier_description.strip()
+                        ),
+                    }
+                ).execute()
+
+                st.success("Tedarikçi kaydı eklendi.")
+                st.rerun()
+
+    st.divider()
+    st.markdown("### Kayıtlı tedarikçi malzemeleri")
+
+    supplier_materials = get_supplier_materials()
+
+    if not supplier_materials:
+        st.info("Henüz tedarikçi kaydı bulunmuyor.")
+    else:
+        supplier_rows = []
+
+        for item in supplier_materials:
+            supplier_rows.append(
+                {
+                    "Malzeme Adı": item["malzeme_adi"],
+                    "Birim Fiyat": float(
+                        item["birim_fiyat"]
+                    ),
+                    "Para Birimi": item["para_birimi"],
+                    "Tedarikçi Adı": item["tedarikci_adi"],
+                    "Web Linki": item.get("web_linki", ""),
+                    "Açıklama": item.get("aciklama", ""),
+                }
+            )
+
+        st.dataframe(
+            pd.DataFrame(supplier_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Birim Fiyat": st.column_config.NumberColumn(
+                    "Birim Fiyat",
+                    format="%.4f",
+                ),
+                "Web Linki": st.column_config.LinkColumn(
+                    "Web Linki",
+                ),
+            },
+        )
+
+    with st.container(
+        key="unavailable_materials_area",
+        border=False,
+    ):
+        st.markdown(
+            "### Türkiye’de Bulunamayan Malzemeler"
+        )
+        st.caption(
+            "Bu alan yalnızca Türkiye’de tedarikçisi bulunamayan "
+            "malzemeleri kaydetmek ve aramak içindir."
+        )
+
+        with st.form(
+            "new_unavailable_material_form",
+            clear_on_submit=True,
+        ):
+            unavailable_name = st.text_input(
+                "Bulunamayan malzeme adı"
+            )
+
+            add_unavailable = st.form_submit_button(
+                "Malzemeyi kırmızı listeye ekle",
+                use_container_width=True,
+            )
+
+            if add_unavailable:
+                cleaned_name = unavailable_name.strip()
+
+                if not cleaned_name:
+                    st.error(
+                        "Malzeme adı boş bırakılamaz."
+                    )
+                else:
+                    existing_unavailable = (
+                        get_unavailable_materials()
+                    )
+                    exact_exists = any(
+                        item["malzeme_adi"].strip().casefold()
+                        == cleaned_name.casefold()
+                        for item in existing_unavailable
+                    )
+
+                    if exact_exists:
+                        st.warning(
+                            "Bu malzeme kırmızı listede zaten kayıtlı."
+                        )
+                    else:
+                        db.table(
+                            "bulunamayan_malzemeler"
+                        ).insert(
+                            {
+                                "malzeme_adi": cleaned_name,
+                            }
+                        ).execute()
+
+                        st.success(
+                            "Bulunamayan malzeme kaydedildi."
+                        )
+                        st.rerun()
+
+        unavailable_materials = get_unavailable_materials()
+
+        unavailable_search = st.text_input(
+            "Bulunamayan malzemelerde ara",
+            placeholder=(
+                "Örn. Stainless Steel 15-5PH H900 "
+                "veya 15-5PH"
+            ),
+            key="unavailable_material_search",
+        )
+
+        if unavailable_search.strip():
+            search_value = unavailable_search.strip().casefold()
+            filtered_unavailable = [
+                item
+                for item in unavailable_materials
+                if search_value
+                in item["malzeme_adi"].casefold()
+            ]
+        else:
+            filtered_unavailable = unavailable_materials
+
+        if not filtered_unavailable:
+            if unavailable_search.strip():
+                st.warning(
+                    "Aramayla eşleşen bulunamayan malzeme yok."
+                )
+            else:
+                st.info(
+                    "Henüz bulunamayan malzeme kaydı yok."
+                )
+        else:
+            unavailable_rows = [
+                {
+                    "Malzeme Adı": item["malzeme_adi"],
+                }
+                for item in filtered_unavailable
+            ]
+
+            st.dataframe(
+                pd.DataFrame(unavailable_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+
