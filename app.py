@@ -2244,41 +2244,161 @@ with tab_suppliers:
     st.divider()
     st.markdown("### Kayıtlı tedarikçi malzemeleri")
 
+    transferred_material_name = st.session_state.pop(
+        "supplier_material_transferred",
+        None,
+    )
+    if transferred_material_name:
+        st.success(
+            f'{transferred_material_name} Fiyat Tanımları bölümüne '
+            "malzeme olarak aktarıldı. Yoğunluk ve açıklama "
+            "bilgilerini oradan tamamlayabilirsin."
+        )
+
     supplier_materials = get_supplier_materials()
 
     if not supplier_materials:
         st.info("Henüz tedarikçi kaydı bulunmuyor.")
     else:
-        supplier_rows = []
+        existing_material_names = {
+            item["ad"].strip().casefold()
+            for item in prices
+            if item["kategori"] == "Malzeme"
+        }
+
+        (
+            header_material,
+            header_price,
+            header_currency,
+            header_supplier,
+            header_web,
+            header_description,
+            header_action,
+        ) = st.columns(
+            [2.2, 1.0, 0.7, 1.4, 2.2, 2.0, 1.45]
+        )
+
+        with header_material:
+            st.markdown("**Malzeme Adı**")
+        with header_price:
+            st.markdown("**Birim Fiyat**")
+        with header_currency:
+            st.markdown("**Para Birimi**")
+        with header_supplier:
+            st.markdown("**Tedarikçi Adı**")
+        with header_web:
+            st.markdown("**Web Linki**")
+        with header_description:
+            st.markdown("**Açıklama**")
+        with header_action:
+            st.markdown("**İşlem**")
+
+        st.divider()
 
         for item in supplier_materials:
-            supplier_rows.append(
-                {
-                    "Malzeme Adı": item["malzeme_adi"],
-                    "Birim Fiyat": float(
-                        item["birim_fiyat"]
-                    ),
-                    "Para Birimi": item["para_birimi"],
-                    "Tedarikçi Adı": item["tedarikci_adi"],
-                    "Web Linki": item.get("web_linki", ""),
-                    "Açıklama": item.get("aciklama", ""),
-                }
+            (
+                col_material,
+                col_price,
+                col_currency,
+                col_supplier,
+                col_web,
+                col_description,
+                col_action,
+            ) = st.columns(
+                [2.2, 1.0, 0.7, 1.4, 2.2, 2.0, 1.45],
+                vertical_alignment="center",
             )
 
-        st.dataframe(
-            pd.DataFrame(supplier_rows),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Birim Fiyat": st.column_config.NumberColumn(
-                    "Birim Fiyat",
-                    format="%.4f",
-                ),
-                "Web Linki": st.column_config.LinkColumn(
-                    "Web Linki",
-                ),
-            },
-        )
+            with col_material:
+                st.write(item["malzeme_adi"])
+
+            with col_price:
+                st.write(
+                    format_number(
+                        float(item["birim_fiyat"]),
+                        4,
+                    )
+                )
+
+            with col_currency:
+                st.write(item["para_birimi"])
+
+            with col_supplier:
+                st.write(item["tedarikci_adi"])
+
+            with col_web:
+                web_link = item.get("web_linki", "") or ""
+                if web_link:
+                    st.markdown(
+                        f"[{web_link}]({web_link})"
+                    )
+                else:
+                    st.write("—")
+
+            with col_description:
+                st.write(item.get("aciklama", "") or "—")
+
+            material_key = (
+                item["malzeme_adi"].strip().casefold()
+            )
+            already_transferred = (
+                material_key in existing_material_names
+            )
+
+            with col_action:
+                if already_transferred:
+                    st.button(
+                        "Aktarıldı",
+                        key=(
+                            f'supplier_already_transferred_'
+                            f'{item["id"]}'
+                        ),
+                        disabled=True,
+                        use_container_width=True,
+                    )
+                elif st.button(
+                    "Fiyat Tanımlarına Aktar",
+                    key=(
+                        f'transfer_supplier_material_'
+                        f'{item["id"]}'
+                    ),
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    source_currency = item["para_birimi"]
+                    source_price = float(
+                        item["birim_fiyat"]
+                    )
+                    eur_snapshot, _ = convert_price(
+                        source_price,
+                        source_currency,
+                        exchange_rate,
+                    )
+
+                    db.table("fiyat_tanimlari").insert(
+                        {
+                            "kategori": "Malzeme",
+                            "ad": item["malzeme_adi"].strip(),
+                            "aciklama": "",
+                            "kaynak_para_birimi": (
+                                source_currency
+                            ),
+                            "kaynak_birim_fiyat": (
+                                source_price
+                            ),
+                            "birim_fiyat_eur": (
+                                eur_snapshot
+                            ),
+                            "yogunluk_g_cm3": None,
+                        }
+                    ).execute()
+
+                    st.session_state[
+                        "supplier_material_transferred"
+                    ] = item["malzeme_adi"]
+                    st.rerun()
+
+            st.divider()
 
     with st.container(
         key="unavailable_materials_area",
