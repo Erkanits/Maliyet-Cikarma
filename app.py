@@ -940,80 +940,94 @@ with tab_labors:
 with tab_cost:
     st.subheader("Parça Maliyeti")
     st.caption(
-        "Malzeme ve operasyonları seçip Seçimleri uygula butonuna bas. "
-        "Ölçü, adet ve süreleri girdikten sonra Güncelle ile fiyatı hesapla; "
-        "Parçayı Kaydet ile Liste bölümüne aktar."
+        "Malzemeyi ve ölçüleri gir, gerekli operasyonları ekle. "
+        "Güncelle ile maliyeti hesapla; Parçayı Kaydet ile "
+        "detayları Liste bölümüne aktar."
     )
 
     if st.session_state.pop("part_saved_success", False):
-        st.success("Parça Liste bölümüne kaydedildi.")
+        st.success(
+            "Parça detaylarıyla birlikte Liste bölümüne kaydedildi. "
+            "Form yeni parça girişi için sıfırlandı."
+        )
 
     form_version = int(
         st.session_state.get("part_form_version", 1)
     )
     context_id = f"new_{form_version}"
-    selection_key = f"part_selection_{context_id}"
     preview_key = f"part_preview_{context_id}"
+    machining_rows_key = f"machining_rows_{context_id}"
+    machining_next_id_key = (
+        f"machining_next_id_{context_id}"
+    )
 
-    if selection_key not in st.session_state:
-        st.session_state[selection_key] = {
-            "material_id": None,
-            "coating_id": None,
-            "extra_id": None,
-            "measurement_id": None,
-            "labor_id": None,
-        }
-
-    stored = st.session_state[selection_key]
+    if machining_rows_key not in st.session_state:
+        st.session_state[machining_rows_key] = [0]
+        st.session_state[machining_next_id_key] = 1
 
     materials = [
-        item for item in prices
+        item
+        for item in prices
         if item["kategori"] == "Malzeme"
     ]
     coatings = [
-        item for item in prices
+        item
+        for item in prices
         if item["kategori"] == "Kaplama"
     ]
     extras = [
-        item for item in prices
+        item
+        for item in prices
         if item["kategori"] == "Ek İşlem"
     ]
 
     measurement_labors = [
-        item for item in labors
+        item
+        for item in labors
         if "ölçüm" in item["ad"].casefold()
     ]
     machining_labors = [
-        item for item in labors
+        item
+        for item in labors
         if "ölçüm" not in item["ad"].casefold()
     ]
 
-    def build_price_options(items, suffix_text=""):
-        options = ["Seçiniz"]
-        lookup = {}
+    material_map = {
+        item["id"]: item
+        for item in materials
+    }
+    coating_map = {
+        item["id"]: item
+        for item in coatings
+    }
+    extra_map = {
+        item["id"]: item
+        for item in extras
+    }
+    measurement_map = {
+        item["id"]: item
+        for item in measurement_labors
+    }
+    machining_map = {
+        item["id"]: item
+        for item in machining_labors
+    }
 
-        for item in items:
-            currency, source_value = get_price_source(item)
-            eur_value, tl_value = convert_price(
-                source_value,
-                currency,
-                exchange_rate,
-            )
-            label = (
-                f'{item["ad"]} — '
-                f'{format_eur(eur_value)} / '
-                f'{format_tl(tl_value)}'
-                f'{suffix_text}'
-            )
-            options.append(label)
-            lookup[label] = item
+    material_ids = [None] + list(material_map.keys())
+    coating_ids = [None] + list(coating_map.keys())
+    extra_ids = [None] + list(extra_map.keys())
+    measurement_ids = [None] + list(
+        measurement_map.keys()
+    )
+    machining_ids = [None] + list(
+        machining_map.keys()
+    )
 
-        return options, lookup
+    def material_label(item_id):
+        if item_id is None:
+            return "Seçiniz"
 
-    material_options = ["Seçiniz"]
-    material_lookup = {}
-
-    for item in materials:
+        item = material_map[item_id]
         currency, source_value = get_price_source(item)
         eur_value, tl_value = convert_price(
             source_value,
@@ -1021,331 +1035,470 @@ with tab_cost:
             exchange_rate,
         )
         density = get_density(item)
-        label = (
+
+        return (
             f'{item["ad"]} — '
             f'{format_eur(eur_value)}/kg / '
             f'{format_tl(tl_value)}/kg — '
             f'{format_number(density, 4)} g/cm³'
         )
-        material_options.append(label)
-        material_lookup[label] = item
 
-    coating_options, coating_lookup = build_price_options(
-        coatings
-    )
-    extra_options, extra_lookup = build_price_options(
-        extras
-    )
+    def price_label(item_id, item_map):
+        if item_id is None:
+            return "Seçiniz"
 
-    measurement_options = ["Seçiniz"]
-    measurement_lookup = {}
+        item = item_map[item_id]
+        currency, source_value = get_price_source(item)
+        eur_value, tl_value = convert_price(
+            source_value,
+            currency,
+            exchange_rate,
+        )
 
-    for item in measurement_labors:
+        return (
+            f'{item["ad"]} — '
+            f'{format_eur(eur_value)} / '
+            f'{format_tl(tl_value)}'
+        )
+
+    def labor_label(item_id, item_map):
+        if item_id is None:
+            return "Seçiniz"
+
+        item = item_map[item_id]
         currency, source_value = get_labor_source(item)
         eur_value, tl_value = convert_price(
             source_value,
             currency,
             exchange_rate,
         )
-        label = (
+
+        return (
             f'{item["ad"]} — '
             f'{format_eur(eur_value)}/saat / '
             f'{format_tl(tl_value)}/saat'
         )
-        measurement_options.append(label)
-        measurement_lookup[label] = item
 
-    labor_options = ["Seçiniz"]
-    labor_lookup = {}
+    top_col1, top_col2 = st.columns([3, 1])
 
-    for item in machining_labors:
-        currency, source_value = get_labor_source(item)
-        eur_value, tl_value = convert_price(
-            source_value,
-            currency,
-            exchange_rate,
-        )
-        label = (
-            f'{item["ad"]} — '
-            f'{format_eur(eur_value)}/saat / '
-            f'{format_tl(tl_value)}/saat'
-        )
-        labor_options.append(label)
-        labor_lookup[label] = item
-
-    def default_label(lookup, stored_id):
-        for label, item in lookup.items():
-            if item["id"] == stored_id:
-                return label
-        return "Seçiniz"
-
-    st.markdown("### Kalemleri seç")
-
-    with st.form(f"selection_form_{context_id}"):
-        row1_col1, row1_col2 = st.columns(2)
-
-        with row1_col1:
-            selected_material_label = st.selectbox(
-                "Malzeme",
-                material_options,
-                index=material_options.index(
-                    default_label(
-                        material_lookup,
-                        stored.get("material_id"),
-                    )
-                ),
-                disabled=len(material_options) == 1,
-            )
-
-        with row1_col2:
-            selected_coating_label = st.selectbox(
-                "Kaplama",
-                coating_options,
-                index=coating_options.index(
-                    default_label(
-                        coating_lookup,
-                        stored.get("coating_id"),
-                    )
-                ),
-                disabled=len(coating_options) == 1,
-            )
-
-        row2_col1, row2_col2 = st.columns(2)
-
-        with row2_col1:
-            selected_extra_label = st.selectbox(
-                "Ek İşlem",
-                extra_options,
-                index=extra_options.index(
-                    default_label(
-                        extra_lookup,
-                        stored.get("extra_id"),
-                    )
-                ),
-                disabled=len(extra_options) == 1,
-            )
-
-        with row2_col2:
-            selected_measurement_label = st.selectbox(
-                "Ölçüm",
-                measurement_options,
-                index=measurement_options.index(
-                    default_label(
-                        measurement_lookup,
-                        stored.get("measurement_id"),
-                    )
-                ),
-                disabled=len(measurement_options) == 1,
-            )
-
-        selected_labor_label = st.selectbox(
-            "Talaşlı İmalat",
-            labor_options,
-            index=labor_options.index(
-                default_label(
-                    labor_lookup,
-                    stored.get("labor_id"),
-                )
-            ),
-            disabled=len(labor_options) == 1,
+    with top_col1:
+        part_name = st.text_input(
+            "Parça adı",
+            key=f"part_name_{context_id}",
         )
 
-        if len(extra_options) == 1:
-            st.caption(
-                "Ek İşlem seçeneği bulunmuyor. "
-                "Önce Fiyat Tanımları bölümünden Ek İşlem ekle."
-            )
-
-        if len(measurement_options) == 1:
-            st.caption(
-                'Ölçüm seçeneği bulunmuyor. '
-                'İşçilik Maliyetleri bölümüne adı "Ölçüm" içeren bir kayıt ekle.'
-            )
-
-        apply_selections = st.form_submit_button(
-            "Seçimleri uygula",
-            use_container_width=True,
+    with top_col2:
+        production_quantity = st.number_input(
+            "Üretilecek adet",
+            min_value=1,
+            value=1,
+            step=1,
+            key=f"production_quantity_{context_id}",
         )
 
-        if apply_selections:
-            st.session_state[selection_key] = {
-                "material_id": (
-                    material_lookup[selected_material_label]["id"]
-                    if selected_material_label != "Seçiniz"
-                    else None
-                ),
-                "coating_id": (
-                    coating_lookup[selected_coating_label]["id"]
-                    if selected_coating_label != "Seçiniz"
-                    else None
-                ),
-                "extra_id": (
-                    extra_lookup[selected_extra_label]["id"]
-                    if selected_extra_label != "Seçiniz"
-                    else None
-                ),
-                "measurement_id": (
-                    measurement_lookup[
-                        selected_measurement_label
-                    ]["id"]
-                    if selected_measurement_label != "Seçiniz"
-                    else None
-                ),
-                "labor_id": (
-                    labor_lookup[selected_labor_label]["id"]
-                    if selected_labor_label != "Seçiniz"
-                    else None
-                ),
-            }
-            st.session_state.pop(preview_key, None)
-            st.rerun()
+    st.markdown("### 1. Malzeme ve ölçüler")
 
-    applied = st.session_state[selection_key]
-
-    selected_material = next(
-        (
-            item for item in materials
-            if item["id"] == applied.get("material_id")
-        ),
-        None,
-    )
-    selected_coating = next(
-        (
-            item for item in coatings
-            if item["id"] == applied.get("coating_id")
-        ),
-        None,
-    )
-    selected_extra = next(
-        (
-            item for item in extras
-            if item["id"] == applied.get("extra_id")
-        ),
-        None,
-    )
-    selected_measurement = next(
-        (
-            item for item in measurement_labors
-            if item["id"] == applied.get("measurement_id")
-        ),
-        None,
-    )
-    selected_labor = next(
-        (
-            item for item in machining_labors
-            if item["id"] == applied.get("labor_id")
-        ),
-        None,
+    (
+        material_col,
+        length_col,
+        width_col,
+        height_col,
+        material_cost_col,
+    ) = st.columns(
+        [2.8, 1, 1, 1.15, 1.8],
+        vertical_alignment="bottom",
     )
 
-    preview = st.session_state.get(preview_key)
+    with material_col:
+        selected_material_id = st.selectbox(
+            "Malzeme",
+            material_ids,
+            format_func=material_label,
+            disabled=len(material_ids) == 1,
+            key=f"material_select_{context_id}",
+        )
 
-    with st.form(f"part_calculation_form_{context_id}"):
-        top_col1, top_col2 = st.columns([3, 1])
+    with length_col:
+        length_mm = st.number_input(
+            "Boy (mm)",
+            min_value=0.0,
+            value=0.0,
+            step=1.0,
+            format="%.3f",
+            key=f"length_mm_{context_id}",
+        )
 
-        with top_col1:
-            part_name = st.text_input("Parça adı")
+    with width_col:
+        width_mm = st.number_input(
+            "En (mm)",
+            min_value=0.0,
+            value=0.0,
+            step=1.0,
+            format="%.3f",
+            key=f"width_mm_{context_id}",
+        )
 
-        with top_col2:
-            production_quantity = st.number_input(
-                "Üretilecek adet",
-                min_value=1,
-                value=1,
-                step=1,
+    with height_col:
+        height_mm = st.number_input(
+            "Yükseklik / Kalınlık (mm)",
+            min_value=0.0,
+            value=0.0,
+            step=1.0,
+            format="%.3f",
+            key=f"height_mm_{context_id}",
+        )
+
+    selected_material = (
+        material_map.get(selected_material_id)
+        if selected_material_id is not None
+        else None
+    )
+
+    material_row = None
+    live_material = None
+
+    if selected_material is not None:
+        material_currency, material_source = (
+            get_price_source(selected_material)
+        )
+        material_density = get_density(
+            selected_material
+        )
+
+        material_row = {
+            "definition": selected_material,
+            "currency": material_currency,
+            "source_value": material_source,
+            "density": material_density,
+            "length_mm": float(length_mm),
+            "width_mm": float(width_mm),
+            "height_mm": float(height_mm),
+        }
+
+        if (
+            material_density > 0
+            and float(length_mm) > 0
+            and float(width_mm) > 0
+            and float(height_mm) > 0
+        ):
+            (
+                live_volume_mm3,
+                live_volume_cm3,
+                live_weight_kg,
+            ) = calculate_rectangular_material(
+                float(length_mm),
+                float(width_mm),
+                float(height_mm),
+                material_density,
             )
-
-        material_row = None
-
-        if selected_material is not None:
-            material_currency, material_source = get_price_source(
-                selected_material
-            )
-            material_density = get_density(selected_material)
-            material_eur, material_tl = convert_price(
+            live_unit_eur, live_unit_tl = convert_price(
                 material_source,
                 material_currency,
                 exchange_rate,
             )
-
-            st.info(
-                f'{selected_material["ad"]} | '
-                f'{format_number(material_density, 4)} g/cm³ | '
-                f'{format_eur(material_eur)}/kg | '
-                f'{format_tl(material_tl)}/kg'
+            live_line_eur = (
+                live_unit_eur * live_weight_kg
+            )
+            live_line_tl = (
+                live_unit_tl * live_weight_kg
             )
 
-            dim_col1, dim_col2, dim_col3 = st.columns(3)
-
-            with dim_col1:
-                length_mm = st.number_input(
-                    "Boy (mm)",
-                    min_value=0.0,
-                    value=0.0,
-                    step=1.0,
-                    format="%.3f",
-                )
-
-            with dim_col2:
-                width_mm = st.number_input(
-                    "En (mm)",
-                    min_value=0.0,
-                    value=0.0,
-                    step=1.0,
-                    format="%.3f",
-                )
-
-            with dim_col3:
-                height_mm = st.number_input(
-                    "Yükseklik / Kalınlık (mm)",
-                    min_value=0.0,
-                    value=0.0,
-                    step=1.0,
-                    format="%.3f",
-                )
-
-            material_row = {
-                "definition": selected_material,
-                "currency": material_currency,
-                "source_value": material_source,
-                "density": material_density,
-                "length_mm": float(length_mm),
-                "width_mm": float(width_mm),
-                "height_mm": float(height_mm),
+            live_material = {
+                **material_row,
+                "volume_mm3": live_volume_mm3,
+                "volume_cm3": live_volume_cm3,
+                "weight_kg": live_weight_kg,
+                "line_eur": live_line_eur,
+                "line_tl": live_line_tl,
             }
 
-        coating_row = None
+    with material_cost_col:
+        if live_material is not None:
+            st.metric(
+                "Tek parça malzeme bedeli",
+                (
+                    f'{format_eur(live_material["line_eur"])} '
+                    f'/ {format_tl(live_material["line_tl"])}'
+                ),
+            )
+            st.caption(
+                f'(Ağırlık: '
+                f'{format_number(live_material["weight_kg"], 4)} kg)'
+            )
 
+            if int(production_quantity) > 1:
+                st.caption(
+                    f'{int(production_quantity)} adet toplam: '
+                    f'{format_eur(live_material["line_eur"] * int(production_quantity))} '
+                    f'/ {format_tl(live_material["line_tl"] * int(production_quantity))}'
+                )
+        else:
+            st.metric(
+                "Tek parça malzeme bedeli",
+                "—",
+            )
+            st.caption(
+                "Malzeme ve üç ölçüyü gir."
+            )
+
+    if (
+        selected_material is not None
+        and get_density(selected_material) <= 0
+    ):
+        st.warning(
+            "Seçilen malzemenin yoğunluğu tanımlanmamış. "
+            "Fiyat Tanımları bölümünden yoğunluğu tamamla."
+        )
+
+    st.divider()
+    st.markdown("### 2. Talaşlı imalat")
+
+    machining_rows = []
+    machining_row_ids = list(
+        st.session_state[machining_rows_key]
+    )
+
+    if len(machining_ids) == 1:
+        st.info(
+            "İşçilik Maliyetleri bölümünde talaşlı imalat "
+            "kaydı bulunmuyor."
+        )
+
+    for row_number, row_id in enumerate(
+        machining_row_ids,
+        start=1,
+    ):
+        (
+            labor_col,
+            duration_col,
+            unit_col,
+            cost_col,
+            remove_col,
+        ) = st.columns(
+            [3.2, 1, 1, 1.7, 0.65],
+            vertical_alignment="bottom",
+        )
+
+        with labor_col:
+            selected_labor_id = st.selectbox(
+                f"Talaşlı imalat {row_number}",
+                machining_ids,
+                format_func=lambda item_id: labor_label(
+                    item_id,
+                    machining_map,
+                ),
+                disabled=len(machining_ids) == 1,
+                key=(
+                    f"machining_select_"
+                    f"{context_id}_{row_id}"
+                ),
+            )
+
+        with duration_col:
+            labor_duration_value = st.number_input(
+                "Süre",
+                min_value=0.0,
+                value=0.0,
+                step=1.0,
+                format="%.4f",
+                key=(
+                    f"machining_duration_"
+                    f"{context_id}_{row_id}"
+                ),
+            )
+
+        with unit_col:
+            labor_duration_unit = st.selectbox(
+                "Süre birimi",
+                ["Saat", "Dakika"],
+                key=(
+                    f"machining_unit_"
+                    f"{context_id}_{row_id}"
+                ),
+            )
+
+        selected_labor = (
+            machining_map.get(selected_labor_id)
+            if selected_labor_id is not None
+            else None
+        )
+
+        labor_hours = (
+            float(labor_duration_value) / 60.0
+            if labor_duration_unit == "Dakika"
+            else float(labor_duration_value)
+        )
+
+        live_labor_eur = 0.0
+        live_labor_tl = 0.0
+
+        if selected_labor is not None:
+            labor_currency, labor_source = (
+                get_labor_source(selected_labor)
+            )
+            hourly_eur, hourly_tl = convert_price(
+                labor_source,
+                labor_currency,
+                exchange_rate,
+            )
+            live_labor_eur = hourly_eur * labor_hours
+            live_labor_tl = hourly_tl * labor_hours
+
+            machining_rows.append(
+                {
+                    "row_id": row_id,
+                    "definition": selected_labor,
+                    "hours": labor_hours,
+                    "entered_value": float(
+                        labor_duration_value
+                    ),
+                    "entered_unit": labor_duration_unit,
+                    "currency": labor_currency,
+                    "source_value": labor_source,
+                }
+            )
+
+        with cost_col:
+            if selected_labor is not None:
+                st.metric(
+                    "Maliyet",
+                    (
+                        f'{format_eur(live_labor_eur)} '
+                        f'/ {format_tl(live_labor_tl)}'
+                    ),
+                )
+                if labor_duration_unit == "Dakika":
+                    st.caption(
+                        f'{format_number(labor_duration_value, 2)} '
+                        f'dakika = '
+                        f'{format_number(labor_hours, 4)} saat'
+                    )
+            else:
+                st.metric("Maliyet", "—")
+
+        with remove_col:
+            if st.button(
+                "✕",
+                key=(
+                    f"remove_machining_"
+                    f"{context_id}_{row_id}"
+                ),
+                help="Bu talaşlı imalat satırını kaldır",
+                use_container_width=True,
+            ):
+                updated_ids = [
+                    existing_id
+                    for existing_id in st.session_state[
+                        machining_rows_key
+                    ]
+                    if existing_id != row_id
+                ]
+
+                if not updated_ids:
+                    replacement_id = st.session_state[
+                        machining_next_id_key
+                    ]
+                    updated_ids = [replacement_id]
+                    st.session_state[
+                        machining_next_id_key
+                    ] = replacement_id + 1
+
+                st.session_state[
+                    machining_rows_key
+                ] = updated_ids
+                st.session_state.pop(
+                    preview_key,
+                    None,
+                )
+                st.rerun()
+
+    add_col, empty_col = st.columns([1.4, 4])
+
+    with add_col:
+        if st.button(
+            "+ Talaşlı İmalat Ekle",
+            key=f"add_machining_{context_id}",
+            use_container_width=True,
+        ):
+            new_row_id = st.session_state[
+                machining_next_id_key
+            ]
+            st.session_state[
+                machining_rows_key
+            ].append(new_row_id)
+            st.session_state[
+                machining_next_id_key
+            ] = new_row_id + 1
+            st.session_state.pop(
+                preview_key,
+                None,
+            )
+            st.rerun()
+
+    st.divider()
+    st.markdown("### 3. Kaplama")
+
+    (
+        coating_select_col,
+        coating_quantity_col,
+        coating_cost_col,
+    ) = st.columns(
+        [4, 1, 1.8],
+        vertical_alignment="bottom",
+    )
+
+    with coating_select_col:
+        selected_coating_id = st.selectbox(
+            "Kaplama",
+            coating_ids,
+            format_func=lambda item_id: price_label(
+                item_id,
+                coating_map,
+            ),
+            disabled=len(coating_ids) == 1,
+            key=f"coating_select_{context_id}",
+        )
+
+    with coating_quantity_col:
+        coating_quantity = st.number_input(
+            "Kaplama adedi",
+            min_value=1,
+            value=1,
+            step=1,
+            disabled=selected_coating_id is None,
+            key=f"coating_quantity_{context_id}",
+        )
+
+    selected_coating = (
+        coating_map.get(selected_coating_id)
+        if selected_coating_id is not None
+        else None
+    )
+    coating_row = None
+
+    with coating_cost_col:
         if selected_coating is not None:
-            coating_currency, coating_source = get_price_source(
-                selected_coating
+            coating_currency, coating_source = (
+                get_price_source(selected_coating)
             )
             coating_eur, coating_tl = convert_price(
                 coating_source,
                 coating_currency,
                 exchange_rate,
             )
-
-            coat_col1, coat_col2 = st.columns([4, 1])
-
-            with coat_col1:
-                st.text_input(
-                    "Kaplama",
-                    value=(
-                        f'{selected_coating["ad"]} — '
-                        f'{format_eur(coating_eur)} / '
-                        f'{format_tl(coating_tl)}'
-                    ),
-                    disabled=True,
-                    key=f"coating_display_{context_id}",
-                )
-
-            with coat_col2:
-                coating_quantity = st.number_input(
-                    "Kaplama adedi",
-                    min_value=1,
-                    value=1,
-                    step=1,
-                )
+            coating_line_eur = (
+                coating_eur * int(coating_quantity)
+            )
+            coating_line_tl = (
+                coating_tl * int(coating_quantity)
+            )
+            st.metric(
+                "Kaplama maliyeti",
+                (
+                    f'{format_eur(coating_line_eur)} '
+                    f'/ {format_tl(coating_line_tl)}'
+                ),
+            )
 
             coating_row = {
                 "definition": selected_coating,
@@ -1354,53 +1507,87 @@ with tab_cost:
                 "currency": coating_currency,
                 "source_value": coating_source,
             }
+        else:
+            st.metric("Kaplama maliyeti", "—")
 
-        extra_row = None
+    st.divider()
+    st.markdown("### 4. Ek işlem")
 
+    (
+        extra_select_col,
+        extra_unit_col,
+        extra_amount_col,
+        extra_cost_col,
+    ) = st.columns(
+        [3.4, 1, 1, 1.8],
+        vertical_alignment="bottom",
+    )
+
+    with extra_select_col:
+        selected_extra_id = st.selectbox(
+            "Ek İşlem",
+            extra_ids,
+            format_func=lambda item_id: price_label(
+                item_id,
+                extra_map,
+            ),
+            disabled=len(extra_ids) == 1,
+            key=f"extra_select_{context_id}",
+        )
+
+    with extra_unit_col:
+        extra_unit = st.selectbox(
+            "Birim",
+            ["Adet", "Saat"],
+            disabled=selected_extra_id is None,
+            key=f"extra_unit_{context_id}",
+        )
+
+    with extra_amount_col:
+        extra_amount = st.number_input(
+            "Miktar",
+            min_value=0.0,
+            value=1.0,
+            step=(
+                1.0
+                if extra_unit == "Adet"
+                else 0.25
+            ),
+            format="%.4f",
+            disabled=selected_extra_id is None,
+            key=f"extra_amount_{context_id}",
+        )
+
+    selected_extra = (
+        extra_map.get(selected_extra_id)
+        if selected_extra_id is not None
+        else None
+    )
+    extra_row = None
+
+    with extra_cost_col:
         if selected_extra is not None:
-            extra_currency, extra_source = get_price_source(
-                selected_extra
+            extra_currency, extra_source = (
+                get_price_source(selected_extra)
             )
             extra_eur, extra_tl = convert_price(
                 extra_source,
                 extra_currency,
                 exchange_rate,
             )
-
-            extra_col1, extra_col2, extra_col3 = st.columns(
-                [4, 1.2, 1.4]
+            extra_line_eur = (
+                extra_eur * float(extra_amount)
             )
-
-            with extra_col1:
-                st.text_input(
-                    "Ek İşlem",
-                    value=(
-                        f'{selected_extra["ad"]} — '
-                        f'{format_eur(extra_eur)} / '
-                        f'{format_tl(extra_tl)}'
-                    ),
-                    disabled=True,
-                    key=f"extra_display_{context_id}",
-                )
-
-            with extra_col2:
-                extra_unit = st.selectbox(
-                    "Birim",
-                    ["Adet", "Saat"],
-                )
-
-            with extra_col3:
-                extra_amount = st.number_input(
-                    "Miktar",
-                    min_value=0.0,
-                    value=1.0,
-                    step=(
-                        1.0
-                        if extra_unit == "Adet"
-                        else 0.25
-                    ),
-                    format="%.4f",
-                )
+            extra_line_tl = (
+                extra_tl * float(extra_amount)
+            )
+            st.metric(
+                "Ek işlem maliyeti",
+                (
+                    f'{format_eur(extra_line_eur)} '
+                    f'/ {format_tl(extra_line_tl)}'
+                ),
+            )
 
             extra_row = {
                 "definition": selected_extra,
@@ -1413,465 +1600,594 @@ with tab_cost:
                 "currency": extra_currency,
                 "source_value": extra_source,
             }
+        else:
+            st.metric("Ek işlem maliyeti", "—")
 
-        measurement_row = None
+    if len(extra_ids) == 1:
+        st.caption(
+            "Ek İşlem seçeneği bulunmuyor. "
+            "Fiyat Tanımları bölümünden Ek İşlem ekleyebilirsin."
+        )
 
+    st.divider()
+    st.markdown("### 5. Ölçüm")
+
+    (
+        measurement_select_col,
+        measurement_duration_col,
+        measurement_cost_col,
+    ) = st.columns(
+        [4, 1, 1.8],
+        vertical_alignment="bottom",
+    )
+
+    with measurement_select_col:
+        selected_measurement_id = st.selectbox(
+            "Ölçüm",
+            measurement_ids,
+            format_func=lambda item_id: labor_label(
+                item_id,
+                measurement_map,
+            ),
+            disabled=len(measurement_ids) == 1,
+            key=f"measurement_select_{context_id}",
+        )
+
+    with measurement_duration_col:
+        measurement_hours = st.number_input(
+            "Süre (saat)",
+            min_value=0.0,
+            value=1.0,
+            step=0.25,
+            format="%.4f",
+            disabled=selected_measurement_id is None,
+            key=f"measurement_hours_{context_id}",
+        )
+
+    selected_measurement = (
+        measurement_map.get(selected_measurement_id)
+        if selected_measurement_id is not None
+        else None
+    )
+    measurement_row = None
+
+    with measurement_cost_col:
         if selected_measurement is not None:
-            measurement_currency, measurement_source = (
-                get_labor_source(selected_measurement)
-            )
-            measurement_eur, measurement_tl = convert_price(
-                measurement_source,
+            (
                 measurement_currency,
-                exchange_rate,
+                measurement_source,
+            ) = get_labor_source(
+                selected_measurement
             )
-
-            measure_col1, measure_col2 = st.columns([4, 1.4])
-
-            with measure_col1:
-                st.text_input(
-                    "Ölçüm",
-                    value=(
-                        f'{selected_measurement["ad"]} — '
-                        f'{format_eur(measurement_eur)}/saat / '
-                        f'{format_tl(measurement_tl)}/saat'
-                    ),
-                    disabled=True,
-                    key=f"measurement_display_{context_id}",
+            measurement_eur, measurement_tl = (
+                convert_price(
+                    measurement_source,
+                    measurement_currency,
+                    exchange_rate,
                 )
-
-            with measure_col2:
-                measurement_hours = st.number_input(
-                    "Ölçüm süresi (saat)",
-                    min_value=0.0,
-                    value=1.0,
-                    step=0.25,
-                    format="%.4f",
-                )
+            )
+            measurement_line_eur = (
+                measurement_eur
+                * float(measurement_hours)
+            )
+            measurement_line_tl = (
+                measurement_tl
+                * float(measurement_hours)
+            )
+            st.metric(
+                "Ölçüm maliyeti",
+                (
+                    f'{format_eur(measurement_line_eur)} '
+                    f'/ {format_tl(measurement_line_tl)}'
+                ),
+            )
 
             measurement_row = {
                 "definition": selected_measurement,
                 "hours": float(measurement_hours),
-                "entered_value": float(measurement_hours),
+                "entered_value": float(
+                    measurement_hours
+                ),
                 "entered_unit": "Saat",
                 "currency": measurement_currency,
                 "source_value": measurement_source,
             }
+        else:
+            st.metric("Ölçüm maliyeti", "—")
 
-        labor_row = None
+    if len(measurement_ids) == 1:
+        st.caption(
+            'Ölçüm seçeneği bulunmuyor. İşçilik Maliyetleri '
+            'bölümüne adı "Ölçüm" içeren bir kayıt ekleyebilirsin.'
+        )
 
-        if selected_labor is not None:
-            labor_currency, labor_source = get_labor_source(
-                selected_labor
+    def create_draft():
+        single_eur = 0.0
+        single_tl = 0.0
+        calculated_material = None
+        calculated_operations = []
+        calculated_measurement = None
+        calculated_labors = []
+
+        if material_row is not None:
+            (
+                volume_mm3,
+                volume_cm3,
+                weight_kg,
+            ) = calculate_rectangular_material(
+                material_row["length_mm"],
+                material_row["width_mm"],
+                material_row["height_mm"],
+                material_row["density"],
             )
-            labor_eur, labor_tl = convert_price(
-                labor_source,
-                labor_currency,
+
+            unit_eur, unit_tl = convert_price(
+                material_row["source_value"],
+                material_row["currency"],
                 exchange_rate,
             )
+            line_eur = unit_eur * weight_kg
+            line_tl = unit_tl * weight_kg
+            single_eur += line_eur
+            single_tl += line_tl
 
-            labor_col1, labor_col2, labor_col3 = st.columns(
-                [4, 1.2, 1.4]
-            )
-
-            with labor_col1:
-                st.text_input(
-                    "Talaşlı İmalat",
-                    value=(
-                        f'{selected_labor["ad"]} — '
-                        f'{format_eur(labor_eur)}/saat / '
-                        f'{format_tl(labor_tl)}/saat'
-                    ),
-                    disabled=True,
-                    key=f"labor_display_{context_id}",
-                )
-
-            with labor_col2:
-                labor_duration_unit = st.selectbox(
-                    "Süre birimi",
-                    ["Saat", "Dakika"],
-                )
-
-            with labor_col3:
-                labor_duration_value = st.number_input(
-                    "Süre",
-                    min_value=0.0,
-                    value=1.0,
-                    step=(
-                        1.0
-                        if labor_duration_unit == "Dakika"
-                        else 0.25
-                    ),
-                    format="%.4f",
-                )
-
-            labor_hours = (
-                float(labor_duration_value) / 60
-                if labor_duration_unit == "Dakika"
-                else float(labor_duration_value)
-            )
-
-            labor_row = {
-                "definition": selected_labor,
-                "hours": labor_hours,
-                "entered_value": float(labor_duration_value),
-                "entered_unit": labor_duration_unit,
-                "currency": labor_currency,
-                "source_value": labor_source,
+            calculated_material = {
+                **material_row,
+                "weight_kg": weight_kg,
+                "volume_mm3": volume_mm3,
+                "volume_cm3": volume_cm3,
+                "line_eur": line_eur,
+                "line_tl": line_tl,
             }
 
-        if (
-            selected_material is None
-            and selected_coating is None
-            and selected_extra is None
-            and selected_measurement is None
-            and selected_labor is None
+        for operation_row in (
+            coating_row,
+            extra_row,
         ):
-            st.info(
-                "Önce yukarıdaki dropdown menülerden seçim yapıp "
-                "Seçimleri uygula butonuna bas."
+            if operation_row is None:
+                continue
+
+            unit_eur, unit_tl = convert_price(
+                operation_row["source_value"],
+                operation_row["currency"],
+                exchange_rate,
+            )
+            line_eur = (
+                unit_eur
+                * operation_row["quantity"]
+            )
+            line_tl = (
+                unit_tl
+                * operation_row["quantity"]
+            )
+            single_eur += line_eur
+            single_tl += line_tl
+
+            calculated_operations.append(
+                {
+                    **operation_row,
+                    "line_eur": line_eur,
+                    "line_tl": line_tl,
+                }
             )
 
-        def create_draft():
-            single_eur = 0.0
-            single_tl = 0.0
-            calculated_material = None
-            calculated_rows = []
-            calculated_measurement = None
-            calculated_labor = None
+        if measurement_row is not None:
+            hourly_eur, hourly_tl = convert_price(
+                measurement_row["source_value"],
+                measurement_row["currency"],
+                exchange_rate,
+            )
+            line_eur = (
+                hourly_eur
+                * measurement_row["hours"]
+            )
+            line_tl = (
+                hourly_tl
+                * measurement_row["hours"]
+            )
+            single_eur += line_eur
+            single_tl += line_tl
 
-            if material_row is not None:
-                (
-                    volume_mm3,
-                    volume_cm3,
-                    weight_kg,
-                ) = calculate_rectangular_material(
-                    material_row["length_mm"],
-                    material_row["width_mm"],
-                    material_row["height_mm"],
-                    material_row["density"],
-                )
+            calculated_measurement = {
+                **measurement_row,
+                "line_eur": line_eur,
+                "line_tl": line_tl,
+            }
 
-                unit_eur, unit_tl = convert_price(
-                    material_row["source_value"],
-                    material_row["currency"],
-                    exchange_rate,
-                )
-                line_eur = unit_eur * weight_kg
-                line_tl = unit_tl * weight_kg
-                single_eur += line_eur
-                single_tl += line_tl
+        for labor_row in machining_rows:
+            hourly_eur, hourly_tl = convert_price(
+                labor_row["source_value"],
+                labor_row["currency"],
+                exchange_rate,
+            )
+            line_eur = (
+                hourly_eur * labor_row["hours"]
+            )
+            line_tl = (
+                hourly_tl * labor_row["hours"]
+            )
+            single_eur += line_eur
+            single_tl += line_tl
 
-                calculated_material = {
-                    **material_row,
-                    "weight_kg": weight_kg,
-                    "volume_mm3": volume_mm3,
-                    "volume_cm3": volume_cm3,
-                    "line_eur": line_eur,
-                    "line_tl": line_tl,
-                }
-
-            for row in (
-                coating_row,
-                extra_row,
-            ):
-                if row is None:
-                    continue
-
-                unit_eur, unit_tl = convert_price(
-                    row["source_value"],
-                    row["currency"],
-                    exchange_rate,
-                )
-                line_eur = unit_eur * row["quantity"]
-                line_tl = unit_tl * row["quantity"]
-                single_eur += line_eur
-                single_tl += line_tl
-
-                calculated_rows.append(
-                    {
-                        **row,
-                        "line_eur": line_eur,
-                        "line_tl": line_tl,
-                    }
-                )
-
-            if measurement_row is not None:
-                hourly_eur, hourly_tl = convert_price(
-                    measurement_row["source_value"],
-                    measurement_row["currency"],
-                    exchange_rate,
-                )
-                line_eur = hourly_eur * measurement_row["hours"]
-                line_tl = hourly_tl * measurement_row["hours"]
-                single_eur += line_eur
-                single_tl += line_tl
-
-                calculated_measurement = {
-                    **measurement_row,
-                    "line_eur": line_eur,
-                    "line_tl": line_tl,
-                }
-
-            if labor_row is not None:
-                hourly_eur, hourly_tl = convert_price(
-                    labor_row["source_value"],
-                    labor_row["currency"],
-                    exchange_rate,
-                )
-                line_eur = hourly_eur * labor_row["hours"]
-                line_tl = hourly_tl * labor_row["hours"]
-                single_eur += line_eur
-                single_tl += line_tl
-
-                calculated_labor = {
+            calculated_labors.append(
+                {
                     **labor_row,
                     "line_eur": line_eur,
                     "line_tl": line_tl,
                 }
-
-            signature = (
-                part_name.strip(),
-                int(production_quantity),
-                round(float(exchange_rate), 8),
-                (
-                    None
-                    if material_row is None
-                    else (
-                        int(material_row["definition"]["id"]),
-                        round(material_row["length_mm"], 6),
-                        round(material_row["width_mm"], 6),
-                        round(material_row["height_mm"], 6),
-                        round(material_row["density"], 6),
-                    )
-                ),
-                tuple(
-                    (
-                        int(row["definition"]["id"]),
-                        round(float(row["quantity"]), 8),
-                        row["amount_type"],
-                    )
-                    for row in (
-                        coating_row,
-                        extra_row,
-                    )
-                    if row is not None
-                ),
-                (
-                    None
-                    if measurement_row is None
-                    else (
-                        int(measurement_row["definition"]["id"]),
-                        round(measurement_row["hours"], 8),
-                    )
-                ),
-                (
-                    None
-                    if labor_row is None
-                    else (
-                        int(labor_row["definition"]["id"]),
-                        round(labor_row["hours"], 8),
-                    )
-                ),
             )
 
-            return {
-                "part_name": part_name.strip(),
-                "production_quantity": int(
-                    production_quantity
-                ),
-                "material": calculated_material,
-                "operation_rows": calculated_rows,
-                "measurement": calculated_measurement,
-                "labor": calculated_labor,
-                "single_eur": single_eur,
-                "single_tl": single_tl,
-                "total_eur": (
-                    single_eur * int(production_quantity)
-                ),
-                "total_tl": (
-                    single_tl * int(production_quantity)
-                ),
-                "signature": signature,
-            }
-
-        update_col, save_col = st.columns(2)
-
-        with update_col:
-            with st.container(key="update_part_action"):
-                update_clicked = st.form_submit_button(
-                    "Güncelle",
-                    use_container_width=True,
+        signature = (
+            part_name.strip(),
+            int(production_quantity),
+            round(float(exchange_rate), 8),
+            (
+                None
+                if material_row is None
+                else (
+                    int(
+                        material_row[
+                            "definition"
+                        ]["id"]
+                    ),
+                    round(
+                        material_row["length_mm"],
+                        6,
+                    ),
+                    round(
+                        material_row["width_mm"],
+                        6,
+                    ),
+                    round(
+                        material_row["height_mm"],
+                        6,
+                    ),
+                    round(
+                        material_row["density"],
+                        6,
+                    ),
                 )
-
-        with save_col:
-            with st.container(key="save_part_action"):
-                save_clicked = st.form_submit_button(
-                    "Parçayı Kaydet",
-                    use_container_width=True,
-                    disabled=preview is None,
+            ),
+            tuple(
+                (
+                    int(
+                        operation_row[
+                            "definition"
+                        ]["id"]
+                    ),
+                    round(
+                        float(
+                            operation_row[
+                                "quantity"
+                            ]
+                        ),
+                        8,
+                    ),
+                    operation_row["amount_type"],
                 )
-
-        current_draft = (
-            create_draft()
-            if update_clicked or save_clicked
-            else None
+                for operation_row in (
+                    coating_row,
+                    extra_row,
+                )
+                if operation_row is not None
+            ),
+            (
+                None
+                if measurement_row is None
+                else (
+                    int(
+                        measurement_row[
+                            "definition"
+                        ]["id"]
+                    ),
+                    round(
+                        measurement_row["hours"],
+                        8,
+                    ),
+                )
+            ),
+            tuple(
+                (
+                    int(
+                        labor_row[
+                            "definition"
+                        ]["id"]
+                    ),
+                    round(
+                        labor_row["hours"],
+                        8,
+                    ),
+                    labor_row["entered_unit"],
+                    round(
+                        labor_row[
+                            "entered_value"
+                        ],
+                        8,
+                    ),
+                )
+                for labor_row in machining_rows
+            ),
         )
 
-        if update_clicked:
-            if not current_draft["part_name"]:
-                st.error("Parça adı boş bırakılamaz.")
-            elif selected_material is None:
-                st.error("Bir malzeme seçmelisin.")
-            elif material_row["density"] <= 0:
-                st.error(
-                    "Seçilen malzemenin yoğunluğu tanımlanmamış. "
-                    "Fiyat Tanımları bölümünden yoğunluğu güncelle."
-                )
-            elif any(
-                value <= 0
-                for value in (
-                    material_row["length_mm"],
-                    material_row["width_mm"],
-                    material_row["height_mm"],
-                )
-            ):
-                st.error(
-                    "Boy, en ve yükseklik değerlerinin tamamını "
-                    "sıfırdan büyük gir."
-                )
-            else:
-                st.session_state[preview_key] = current_draft
-                st.rerun()
+        return {
+            "part_name": part_name.strip(),
+            "production_quantity": int(
+                production_quantity
+            ),
+            "material": calculated_material,
+            "operation_rows": calculated_operations,
+            "measurement": calculated_measurement,
+            "labors": calculated_labors,
+            "single_eur": single_eur,
+            "single_tl": single_tl,
+            "total_eur": (
+                single_eur
+                * int(production_quantity)
+            ),
+            "total_tl": (
+                single_tl
+                * int(production_quantity)
+            ),
+            "signature": signature,
+        }
 
-        if save_clicked:
-            saved_preview = st.session_state.get(preview_key)
+    preview = st.session_state.get(preview_key)
 
-            if saved_preview is None:
-                st.error(
-                    "Önce Güncelle butonuna basarak fiyatı hesapla."
-                )
-            elif (
-                current_draft["signature"]
-                != saved_preview["signature"]
-            ):
-                st.error(
-                    "Bilgiler hesaplamadan sonra değişmiş. "
-                    "Önce tekrar Güncelle butonuna bas."
-                )
-            else:
-                material = saved_preview["material"]
+    st.divider()
+    update_col, save_col = st.columns(2)
 
-                result = db.table("parcalar").insert(
-                    {
-                        "parca_adi": saved_preview["part_name"],
-                        "adet": saved_preview[
-                            "production_quantity"
-                        ],
-                        "boy_mm": material["length_mm"],
-                        "en_mm": material["width_mm"],
-                        "yukseklik_mm": material["height_mm"],
-                        "malzeme_agirlik_kg": material[
-                            "weight_kg"
-                        ],
-                    }
-                ).execute()
+    with update_col:
+        with st.container(key="update_part_action"):
+            update_clicked = st.button(
+                "Güncelle",
+                use_container_width=True,
+                key=f"update_part_{context_id}",
+            )
 
-                part_id = result.data[0]["id"]
-                item_rows_to_save = []
+    with save_col:
+        with st.container(key="save_part_action"):
+            save_clicked = st.button(
+                "Parçayı Kaydet",
+                use_container_width=True,
+                disabled=preview is None,
+                key=f"save_part_{context_id}",
+            )
 
-                material_eur_snapshot, _ = convert_price(
+    current_draft = (
+        create_draft()
+        if update_clicked or save_clicked
+        else None
+    )
+
+    if update_clicked:
+        selected_labor_with_zero_duration = any(
+            row["entered_value"] <= 0
+            for row in machining_rows
+        )
+
+        if not current_draft["part_name"]:
+            st.error("Parça adı boş bırakılamaz.")
+        elif selected_material is None:
+            st.error("Bir malzeme seçmelisin.")
+        elif material_row["density"] <= 0:
+            st.error(
+                "Seçilen malzemenin yoğunluğu tanımlanmamış. "
+                "Fiyat Tanımları bölümünden yoğunluğu güncelle."
+            )
+        elif any(
+            value <= 0
+            for value in (
+                material_row["length_mm"],
+                material_row["width_mm"],
+                material_row["height_mm"],
+            )
+        ):
+            st.error(
+                "Boy, en ve yükseklik değerlerinin tamamını "
+                "sıfırdan büyük gir."
+            )
+        elif selected_labor_with_zero_duration:
+            st.error(
+                "Seçilen talaşlı imalatların sürelerini "
+                "sıfırdan büyük gir."
+            )
+        elif (
+            selected_measurement is not None
+            and float(measurement_hours) <= 0
+        ):
+            st.error(
+                "Ölçüm süresini sıfırdan büyük gir."
+            )
+        elif (
+            selected_extra is not None
+            and float(extra_amount) <= 0
+        ):
+            st.error(
+                "Ek işlem miktarını sıfırdan büyük gir."
+            )
+        else:
+            st.session_state[
+                preview_key
+            ] = current_draft
+            st.rerun()
+
+    if save_clicked:
+        saved_preview = st.session_state.get(
+            preview_key
+        )
+
+        if saved_preview is None:
+            st.error(
+                "Önce Güncelle butonuna basarak fiyatı hesapla."
+            )
+        elif (
+            current_draft["signature"]
+            != saved_preview["signature"]
+        ):
+            st.error(
+                "Bilgiler hesaplamadan sonra değişmiş. "
+                "Önce tekrar Güncelle butonuna bas."
+            )
+        else:
+            material = saved_preview["material"]
+
+            result = db.table("parcalar").insert(
+                {
+                    "parca_adi": (
+                        saved_preview["part_name"]
+                    ),
+                    "adet": saved_preview[
+                        "production_quantity"
+                    ],
+                    "boy_mm": material["length_mm"],
+                    "en_mm": material["width_mm"],
+                    "yukseklik_mm": (
+                        material["height_mm"]
+                    ),
+                    "malzeme_agirlik_kg": (
+                        material["weight_kg"]
+                    ),
+                }
+            ).execute()
+
+            part_id = result.data[0]["id"]
+            item_rows_to_save = []
+
+            material_eur_snapshot, _ = (
+                convert_price(
                     material["source_value"],
                     material["currency"],
+                    exchange_rate,
+                )
+            )
+
+            item_rows_to_save.append(
+                {
+                    "parca_id": part_id,
+                    "fiyat_tanimi_id": (
+                        material[
+                            "definition"
+                        ]["id"]
+                    ),
+                    "miktar": material["weight_kg"],
+                    "miktar_turu": "kg",
+                    "kaynak_para_birimi": (
+                        material["currency"]
+                    ),
+                    "kaynak_birim_fiyat": (
+                        material["source_value"]
+                    ),
+                    "birim_fiyat_eur": (
+                        material_eur_snapshot
+                    ),
+                }
+            )
+
+            for operation_row in saved_preview[
+                "operation_rows"
+            ]:
+                eur_snapshot, _ = convert_price(
+                    operation_row["source_value"],
+                    operation_row["currency"],
                     exchange_rate,
                 )
 
                 item_rows_to_save.append(
                     {
                         "parca_id": part_id,
-                        "fiyat_tanimi_id": material[
-                            "definition"
-                        ]["id"],
-                        "miktar": material["weight_kg"],
-                        "miktar_turu": "kg",
-                        "kaynak_para_birimi": material[
-                            "currency"
-                        ],
-                        "kaynak_birim_fiyat": material[
-                            "source_value"
-                        ],
+                        "fiyat_tanimi_id": (
+                            operation_row[
+                                "definition"
+                            ]["id"]
+                        ),
+                        "miktar": (
+                            operation_row["quantity"]
+                        ),
+                        "miktar_turu": (
+                            operation_row[
+                                "amount_type"
+                            ]
+                        ),
+                        "kaynak_para_birimi": (
+                            operation_row[
+                                "currency"
+                            ]
+                        ),
+                        "kaynak_birim_fiyat": (
+                            operation_row[
+                                "source_value"
+                            ]
+                        ),
                         "birim_fiyat_eur": (
-                            material_eur_snapshot
+                            eur_snapshot
                         ),
                     }
                 )
 
-                for row in saved_preview["operation_rows"]:
-                    eur_snapshot, _ = convert_price(
-                        row["source_value"],
-                        row["currency"],
-                        exchange_rate,
-                    )
+            db.table("parca_kalemleri").insert(
+                item_rows_to_save
+            ).execute()
 
-                    item_rows_to_save.append(
-                        {
-                            "parca_id": part_id,
-                            "fiyat_tanimi_id": row[
+            labor_rows_to_save = []
+
+            all_labor_rows = []
+
+            if saved_preview["measurement"] is not None:
+                all_labor_rows.append(
+                    saved_preview["measurement"]
+                )
+
+            all_labor_rows.extend(
+                saved_preview["labors"]
+            )
+
+            for labor_item in all_labor_rows:
+                labor_rows_to_save.append(
+                    {
+                        "parca_id": part_id,
+                        "iscilik_tanimi_id": (
+                            labor_item[
                                 "definition"
-                            ]["id"],
-                            "miktar": row["quantity"],
-                            "miktar_turu": row["amount_type"],
-                            "kaynak_para_birimi": row[
-                                "currency"
-                            ],
-                            "kaynak_birim_fiyat": row[
+                            ]["id"]
+                        ),
+                        "saat": labor_item["hours"],
+                        "kaynak_para_birimi": (
+                            labor_item["currency"]
+                        ),
+                        "kaynak_saatlik_ucret": (
+                            labor_item[
                                 "source_value"
-                            ],
-                            "birim_fiyat_eur": eur_snapshot,
-                        }
-                    )
+                            ]
+                        ),
+                    }
+                )
 
-                db.table("parca_kalemleri").insert(
-                    item_rows_to_save
+            if labor_rows_to_save:
+                db.table(
+                    "parca_iscilik_kalemleri"
+                ).insert(
+                    labor_rows_to_save
                 ).execute()
 
-                labor_rows_to_save = []
-
-                for labor_item in (
-                    saved_preview["measurement"],
-                    saved_preview["labor"],
-                ):
-                    if labor_item is None:
-                        continue
-
-                    labor_rows_to_save.append(
-                        {
-                            "parca_id": part_id,
-                            "iscilik_tanimi_id": labor_item[
-                                "definition"
-                            ]["id"],
-                            "saat": labor_item["hours"],
-                            "kaynak_para_birimi": labor_item[
-                                "currency"
-                            ],
-                            "kaynak_saatlik_ucret": labor_item[
-                                "source_value"
-                            ],
-                        }
-                    )
-
-                if labor_rows_to_save:
-                    db.table(
-                        "parca_iscilik_kalemleri"
-                    ).insert(labor_rows_to_save).execute()
-
-                st.session_state.pop(preview_key, None)
-                st.session_state.pop(selection_key, None)
-                st.session_state["part_form_version"] = (
-                    form_version + 1
-                )
-                st.session_state["part_saved_success"] = True
-                st.rerun()
+            st.session_state.pop(
+                preview_key,
+                None,
+            )
+            st.session_state.pop(
+                machining_rows_key,
+                None,
+            )
+            st.session_state.pop(
+                machining_next_id_key,
+                None,
+            )
+            st.session_state[
+                "part_form_version"
+            ] = form_version + 1
+            st.session_state[
+                "part_saved_success"
+            ] = True
+            st.rerun()
 
     preview = st.session_state.get(preview_key)
 
@@ -1881,83 +2197,103 @@ with tab_cost:
 
         material = preview["material"]
 
-        info_col1, info_col2, info_col3 = st.columns(3)
-        info_col1.metric(
-            "Hammadde hacmi",
-            f'{format_number(material["volume_cm3"], 2)} cm³',
-        )
-        info_col2.metric(
-            "Hammadde ağırlığı",
-            f'{format_number(material["weight_kg"], 4)} kg',
-        )
-        info_col3.metric(
-            "Hammadde maliyeti",
-            (
-                f'{format_eur(material["line_eur"])} / '
-                f'{format_tl(material["line_tl"])}'
-            ),
-        )
+        material_info_col, single_col = st.columns(2)
 
-        metric1, metric2, metric3, metric4 = st.columns(4)
-        metric1.metric(
-            "Tek parça EUR",
-            format_eur(preview["single_eur"]),
-        )
-        metric2.metric(
-            "Tek parça TL",
-            format_tl(preview["single_tl"]),
-        )
-        metric3.metric(
+        with material_info_col:
+            st.metric(
+                "Tek parça hammadde maliyeti",
+                (
+                    f'{format_eur(material["line_eur"])} '
+                    f'/ {format_tl(material["line_tl"])}'
+                ),
+            )
+            st.caption(
+                f'(Hammadde ağırlığı: '
+                f'{format_number(material["weight_kg"], 4)} kg, '
+                f'hacim: '
+                f'{format_number(material["volume_cm3"], 2)} cm³)'
+            )
+
+        with single_col:
+            st.metric(
+                "Tek parça toplam maliyet",
+                (
+                    f'{format_eur(preview["single_eur"])} '
+                    f'/ {format_tl(preview["single_tl"])}'
+                ),
+            )
+
+        total_col1, total_col2 = st.columns(2)
+        total_col1.metric(
             "Genel toplam EUR",
             format_eur(preview["total_eur"]),
         )
-        metric4.metric(
+        total_col2.metric(
             "Genel toplam TL",
             format_tl(preview["total_tl"]),
         )
 
         detail_rows = []
 
-        for row in preview["operation_rows"]:
+        for operation_row in preview[
+            "operation_rows"
+        ]:
             amount_text = (
-                f'{format_number(row["quantity"], 4)} saat'
-                if row["amount_type"] == "saat"
-                else f'{format_number(row["quantity"], 0)} adet'
+                f'{format_number(operation_row["quantity"], 4)} '
+                f'saat'
+                if operation_row["amount_type"] == "saat"
+                else (
+                    f'{format_number(operation_row["quantity"], 0)} '
+                    f'adet'
+                )
             )
 
             detail_rows.append(
                 {
-                    "Kalem": row["definition"]["ad"],
+                    "Kalem": (
+                        operation_row[
+                            "definition"
+                        ]["ad"]
+                    ),
                     "Miktar": amount_text,
                     "Maliyet EUR": format_eur(
-                        row["line_eur"]
+                        operation_row["line_eur"]
                     ),
                     "Maliyet TL": format_tl(
-                        row["line_tl"]
+                        operation_row["line_tl"]
                     ),
                 }
             )
 
-        for labor in (
-            preview["measurement"],
-            preview["labor"],
-        ):
-            if labor is None:
-                continue
+        labor_detail_rows = []
 
+        if preview["measurement"] is not None:
+            labor_detail_rows.append(
+                preview["measurement"]
+            )
+
+        labor_detail_rows.extend(
+            preview["labors"]
+        )
+
+        for labor_item in labor_detail_rows:
             detail_rows.append(
                 {
-                    "Kalem": labor["definition"]["ad"],
+                    "Kalem": (
+                        labor_item[
+                            "definition"
+                        ]["ad"]
+                    ),
                     "Miktar": (
-                        f'{format_number(labor["entered_value"], 4)} '
-                        f'{labor["entered_unit"]} '
-                        f'({format_number(labor["hours"], 4)} saat)'
+                        f'{format_number(labor_item["entered_value"], 4)} '
+                        f'{labor_item["entered_unit"]} '
+                        f'({format_number(labor_item["hours"], 4)} saat)'
                     ),
                     "Maliyet EUR": format_eur(
-                        labor["line_eur"]
+                        labor_item["line_eur"]
                     ),
                     "Maliyet TL": format_tl(
-                        labor["line_tl"]
+                        labor_item["line_tl"]
                     ),
                 }
             )
@@ -1968,6 +2304,7 @@ with tab_cost:
                 use_container_width=True,
                 hide_index=True,
             )
+
 # =========================================================
 # LİSTE
 # =========================================================
