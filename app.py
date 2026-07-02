@@ -1915,6 +1915,16 @@ with tab_cost:
 # =========================================================
 with tab_list:
     st.subheader("Parça Listesi")
+
+    deleted_count = st.session_state.pop(
+        "deleted_all_parts_count",
+        None,
+    )
+    if deleted_count:
+        st.success(
+            f"{deleted_count} parça ve bağlı maliyet kayıtları silindi."
+        )
+
     all_part_items = get_part_items()
     all_part_labors = get_part_labors()
 
@@ -2013,76 +2023,54 @@ with tab_list:
                 use_container_width=True,
             )
 
-        with delete_col:
-            with st.expander("Listeden parça sil", expanded=False):
-                delete_options = {}
-                delete_labels = []
+        @st.dialog("Tüm listeyi sil")
+        def confirm_delete_all_parts():
+            st.warning(
+                "Listedeki tüm parçalar ve bu parçalara bağlı maliyet "
+                "kayıtları kalıcı olarak silinecek. Emin misin?"
+            )
 
-                for index, part in enumerate(parts, start=1):
-                    dimensions = ""
+            cancel_col, confirm_col = st.columns(2)
 
-                    if all(
-                        part.get(key) is not None
-                        for key in (
-                            "boy_mm",
-                            "en_mm",
-                            "yukseklik_mm",
-                        )
-                    ):
-                        dimensions = (
-                            f' — {format_number(part["boy_mm"], 2)} × '
-                            f'{format_number(part["en_mm"], 2)} × '
-                            f'{format_number(part["yukseklik_mm"], 2)} mm'
-                        )
-
-                    label = (
-                        f'{index}. {part["parca_adi"]} — '
-                        f'{int(part["adet"])} adet'
-                        f'{dimensions}'
-                    )
-
-                    delete_labels.append(label)
-                    delete_options[label] = part["id"]
-
-                selected_delete_labels = st.multiselect(
-                    "Silinecek parçaları seç",
-                    delete_labels,
-                    key="parts_to_delete",
-                )
-
-                confirm_delete = st.checkbox(
-                    "Seçilen parçaların kalıcı olarak silineceğini onaylıyorum.",
-                    key="confirm_parts_delete",
-                )
-
+            with cancel_col:
                 if st.button(
-                    "Seçili parçaları sil",
+                    "Vazgeç",
+                    use_container_width=True,
+                    key="cancel_delete_all_parts",
+                ):
+                    st.rerun()
+
+            with confirm_col:
+                if st.button(
+                    "Evet, tamamını sil",
                     type="primary",
                     use_container_width=True,
-                    disabled=(
-                        not selected_delete_labels
-                        or not confirm_delete
-                    ),
-                    key="delete_selected_parts",
+                    key="confirm_delete_all_parts",
                 ):
-                    selected_ids = [
-                        delete_options[label]
-                        for label in selected_delete_labels
-                    ]
-
                     try:
-                        for part_id in selected_ids:
+                        deleted_count = len(parts)
+
+                        for part in parts:
                             db.table("parcalar").delete().eq(
                                 "id",
-                                part_id,
+                                part["id"],
                             ).execute()
 
-                        st.success(
-                            f"{len(selected_ids)} parça listeden silindi."
-                        )
+                        st.session_state[
+                            "deleted_all_parts_count"
+                        ] = deleted_count
                         st.rerun()
                     except Exception as error:
                         st.error(
-                            "Parçalar silinirken bir hata oluştu. "
+                            "Liste silinirken bir hata oluştu. "
                             f"Detay: {error}"
                         )
+
+        with delete_col:
+            if st.button(
+                "Tüm Listeyi Sil",
+                type="primary",
+                use_container_width=True,
+                key="open_delete_all_parts_dialog",
+            ):
+                confirm_delete_all_parts()
