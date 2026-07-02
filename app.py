@@ -600,9 +600,19 @@ def build_quote_xlsx(
     quote_date,
     quote_number,
     email_address,
+    quote_currency,
 ):
     frames = build_export_frames(rate)
     dataframe = frames["Liste"]
+
+    currency_code = (
+        "EUR"
+        if quote_currency == "EUR (€)"
+        else "TL"
+    )
+    currency_symbol = "€" if currency_code == "EUR" else "TL"
+    unit_cost_column = f"Birim Fiyat {currency_code}"
+    total_cost_column = f"Toplam Fiyat {currency_code}"
 
     workbook = Workbook()
     sheet = workbook.active
@@ -652,9 +662,18 @@ def build_quote_xlsx(
         bottom=thin_gray,
     )
 
-    sheet.merge_cells("A1:O1")
+    last_column = 11
+
+    sheet.merge_cells(
+        start_row=1,
+        start_column=1,
+        end_row=1,
+        end_column=last_column,
+    )
     title_cell = sheet["A1"]
-    title_cell.value = "ITS SYSTEMS – TEKLİF"
+    title_cell.value = (
+        f"ITS SYSTEMS – TEKLİF ({currency_code})"
+    )
     title_cell.fill = accent_fill
     title_cell.font = title_font
     title_cell.alignment = Alignment(
@@ -663,14 +682,29 @@ def build_quote_xlsx(
     )
     sheet.row_dimensions[1].height = 30
 
-    # Teklif üst bilgileri
     metadata = [
-        ("A3", "Teklif Hazırlayan", "B3:D3", prepared_by),
-        ("E3", "E-posta", "F3:I3", email_address),
-        ("J3", "Teklif Tarihi", "K3:L3", quote_date),
-        ("M3", "Teklif Numarası", "N3:O3", quote_number),
-        ("A4", "Kâr Oranı", "B4:D4", float(profit_rate_percent) / 100),
-        ("E4", "EUR/TL Kuru", "F4:I4", float(rate)),
+        ("A3", "Teklif Hazırlayan", "B3:C3", prepared_by),
+        ("D3", "E-posta", "E3:G3", email_address),
+        ("H3", "Teklif Tarihi", "I3", quote_date),
+        ("J3", "Teklif Numarası", "K3", quote_number),
+        (
+            "A4",
+            "Kâr Oranı",
+            "B4:C4",
+            float(profit_rate_percent) / 100,
+        ),
+        (
+            "D4",
+            "Teklif Para Birimi",
+            "E4:G4",
+            currency_code,
+        ),
+        (
+            "H4",
+            "EUR/TL Kuru",
+            "I4:K4",
+            float(rate),
+        ),
     ]
 
     for label_cell, label, value_range, value in metadata:
@@ -682,7 +716,9 @@ def build_quote_xlsx(
             vertical="center",
         )
 
-        sheet.merge_cells(value_range)
+        if ":" in value_range:
+            sheet.merge_cells(value_range)
+
         start_cell = value_range.split(":")[0]
         sheet[start_cell] = value
         sheet[start_cell].border = cell_border
@@ -692,18 +728,22 @@ def build_quote_xlsx(
         )
 
         start_col = sheet[start_cell].column
-        end_col = sheet[value_range.split(":")[1]].column
+        end_cell = value_range.split(":")[-1]
+        end_col = sheet[end_cell].column
         row_number = sheet[start_cell].row
 
-        for column_number in range(start_col, end_col + 1):
+        for column_number in range(
+            start_col,
+            end_col + 1,
+        ):
             sheet.cell(
                 row=row_number,
                 column=column_number,
             ).border = cell_border
 
     sheet["B4"].number_format = "0.00%"
-    sheet["F4"].number_format = '#,##0.0000'
-    sheet["K3"].number_format = "dd.mm.yyyy"
+    sheet["I4"].number_format = "#,##0.0000"
+    sheet["I3"].number_format = "dd.mm.yyyy"
 
     headers = [
         "Sıra",
@@ -712,19 +752,18 @@ def build_quote_xlsx(
         "Ebat (mm)",
         "Ağırlık (kg)",
         "İşlemler",
-        "Birim Maliyet EUR",
-        "Birim Maliyet TL",
-        "Toplam Maliyet EUR",
-        "Toplam Maliyet TL",
+        f"Birim Maliyet {currency_code}",
+        f"Toplam Maliyet {currency_code}",
         "Kâr Oranı",
-        "Kâr EUR",
-        "Kâr TL",
-        "Teklif Toplam EUR",
-        "Teklif Toplam TL",
+        f"Kâr {currency_code}",
+        f"Teklif Toplam {currency_code}",
     ]
     header_row = 7
 
-    for column_index, header in enumerate(headers, start=1):
+    for column_index, header in enumerate(
+        headers,
+        start=1,
+    ):
         cell = sheet.cell(
             row=header_row,
             column=column_index,
@@ -746,12 +785,14 @@ def build_quote_xlsx(
             start_row=data_start_row,
             start_column=1,
             end_row=data_start_row,
-            end_column=15,
+            end_column=last_column,
         )
         empty_cell = sheet.cell(
             row=data_start_row,
             column=1,
-            value="Teklife eklenecek kayıtlı parça bulunmuyor.",
+            value=(
+                "Teklife eklenecek kayıtlı parça bulunmuyor."
+            ),
         )
         empty_cell.alignment = Alignment(
             horizontal="center",
@@ -765,17 +806,24 @@ def build_quote_xlsx(
         ):
             excel_row = data_start_row + row_offset
 
+            operations_without_prices = " + ".join(
+                operation.rsplit(" (", 1)[0]
+                for operation in str(
+                    row["İşlemler"]
+                ).split(" + ")
+            )
+
             values = [
                 row_offset + 1,
                 str(row["Parça Adı"]),
                 int(row["Adet"]),
                 str(row["Kaba Ebat"]),
-                float(row["Malzeme Ağırlığı (kg)"]),
-                str(row["İşlemler"]),
-                float(row["Birim Fiyat EUR"]),
-                float(row["Birim Fiyat TL"]),
-                float(row["Toplam Fiyat EUR"]),
-                float(row["Toplam Fiyat TL"]),
+                float(
+                    row["Malzeme Ağırlığı (kg)"]
+                ),
+                operations_without_prices,
+                float(row[unit_cost_column]),
+                float(row[total_cost_column]),
             ]
 
             for column_index, value in enumerate(
@@ -795,31 +843,21 @@ def build_quote_xlsx(
 
             sheet.cell(
                 row=excel_row,
-                column=11,
+                column=9,
                 value="=$B$4",
             )
             sheet.cell(
                 row=excel_row,
-                column=12,
-                value=f"=I{excel_row}*K{excel_row}",
+                column=10,
+                value=f"=H{excel_row}*I{excel_row}",
             )
             sheet.cell(
                 row=excel_row,
-                column=13,
-                value=f"=J{excel_row}*K{excel_row}",
-            )
-            sheet.cell(
-                row=excel_row,
-                column=14,
-                value=f"=I{excel_row}+L{excel_row}",
-            )
-            sheet.cell(
-                row=excel_row,
-                column=15,
-                value=f"=J{excel_row}+M{excel_row}",
+                column=11,
+                value=f"=H{excel_row}+J{excel_row}",
             )
 
-            for column_index in range(11, 16):
+            for column_index in range(9, 12):
                 cell = sheet.cell(
                     row=excel_row,
                     column=column_index,
@@ -831,12 +869,11 @@ def build_quote_xlsx(
 
         total_row = data_start_row + len(dataframe)
 
-    # Genel toplam satırı
     sheet.merge_cells(
         start_row=total_row,
         start_column=1,
         end_row=total_row,
-        end_column=8,
+        end_column=7,
     )
     total_label = sheet.cell(
         row=total_row,
@@ -850,63 +887,60 @@ def build_quote_xlsx(
         vertical="center",
     )
 
-    for column_index in range(1, 16):
-        sheet.cell(
+    for column_index in range(
+        1,
+        last_column + 1,
+    ):
+        cell = sheet.cell(
             row=total_row,
             column=column_index,
-        ).border = cell_border
-        sheet.cell(
-            row=total_row,
-            column=column_index,
-        ).fill = total_fill
-        sheet.cell(
-            row=total_row,
-            column=column_index,
-        ).font = total_font
+        )
+        cell.border = cell_border
+        cell.fill = total_fill
+        cell.font = total_font
 
     if not dataframe.empty:
         last_data_row = total_row - 1
         sheet.cell(
             row=total_row,
+            column=8,
+            value=(
+                f"=SUM(H{data_start_row}:"
+                f"H{last_data_row})"
+            ),
+        )
+        sheet.cell(
+            row=total_row,
             column=9,
-            value=f"=SUM(I{data_start_row}:I{last_data_row})",
-        )
-        sheet.cell(
-            row=total_row,
-            column=10,
-            value=f"=SUM(J{data_start_row}:J{last_data_row})",
-        )
-        sheet.cell(
-            row=total_row,
-            column=11,
             value="=$B$4",
         )
         sheet.cell(
             row=total_row,
-            column=12,
-            value=f"=SUM(L{data_start_row}:L{last_data_row})",
+            column=10,
+            value=(
+                f"=SUM(J{data_start_row}:"
+                f"J{last_data_row})"
+            ),
         )
         sheet.cell(
             row=total_row,
-            column=13,
-            value=f"=SUM(M{data_start_row}:M{last_data_row})",
-        )
-        sheet.cell(
-            row=total_row,
-            column=14,
-            value=f"=SUM(N{data_start_row}:N{last_data_row})",
-        )
-        sheet.cell(
-            row=total_row,
-            column=15,
-            value=f"=SUM(O{data_start_row}:O{last_data_row})",
+            column=11,
+            value=(
+                f"=SUM(K{data_start_row}:"
+                f"K{last_data_row})"
+            ),
         )
 
-    # Sayısal biçimler
-    eur_columns = (7, 9, 12, 14)
-    tl_columns = (8, 10, 13, 15)
+    money_format = (
+        '#,##0.00 "€"'
+        if currency_code == "EUR"
+        else '#,##0.00 "TL"'
+    )
 
-    for row_number in range(data_start_row, total_row + 1):
+    for row_number in range(
+        data_start_row,
+        total_row + 1,
+    ):
         sheet.cell(
             row=row_number,
             column=3,
@@ -916,21 +950,15 @@ def build_quote_xlsx(
             column=5,
         ).number_format = "#,##0.0000"
 
-        for column_index in eur_columns:
+        for column_index in (7, 8, 10, 11):
             sheet.cell(
                 row=row_number,
                 column=column_index,
-            ).number_format = '#,##0.00 "€"'
-
-        for column_index in tl_columns:
-            sheet.cell(
-                row=row_number,
-                column=column_index,
-            ).number_format = '#,##0.00 "TL"'
+            ).number_format = money_format
 
         sheet.cell(
             row=row_number,
-            column=11,
+            column=9,
         ).number_format = "0.00%"
 
     widths = {
@@ -939,34 +967,32 @@ def build_quote_xlsx(
         "C": 9,
         "D": 20,
         "E": 14,
-        "F": 55,
-        "G": 18,
-        "H": 18,
-        "I": 18,
-        "J": 18,
-        "K": 12,
-        "L": 15,
-        "M": 15,
-        "N": 19,
-        "O": 19,
+        "F": 58,
+        "G": 20,
+        "H": 21,
+        "I": 12,
+        "J": 17,
+        "K": 21,
     }
 
     for column_letter, width in widths.items():
-        sheet.column_dimensions[column_letter].width = width
+        sheet.column_dimensions[
+            column_letter
+        ].width = width
 
     sheet.row_dimensions[header_row].height = 36
     sheet.freeze_panes = "A8"
     sheet.auto_filter.ref = (
-        f"A{header_row}:O{max(total_row - 1, header_row)}"
+        f"A{header_row}:K"
+        f"{max(total_row - 1, header_row)}"
     )
     sheet.sheet_view.showGridLines = False
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
     sheet.print_title_rows = f"1:{header_row}"
-    sheet.print_area = f"A1:O{total_row}"
+    sheet.print_area = f"A1:K{total_row}"
 
-    # Excel açıldığında formüllerin yeniden hesaplanmasını ister.
     try:
         workbook.calculation.fullCalcOnLoad = True
         workbook.calculation.forceFullCalc = True
@@ -2512,12 +2538,24 @@ with tab_list:
                     key="quote_number",
                 )
 
-            email_address = st.text_input(
-                "E-posta",
-                value="erkan.engin@itssystems.com.tr",
-                disabled=True,
-                key="quote_email",
+            currency_col, email_col = st.columns(
+                [1, 2]
             )
+
+            with currency_col:
+                quote_currency = st.selectbox(
+                    "Teklif Para Birimi",
+                    ["EUR (€)", "TL"],
+                    key="quote_currency",
+                )
+
+            with email_col:
+                email_address = st.text_input(
+                    "E-posta",
+                    value="erkan.engin@itssystems.com.tr",
+                    disabled=True,
+                    key="quote_email",
+                )
 
         profit_multiplier = (
             float(profit_rate_percent) / 100
@@ -2543,31 +2581,46 @@ with tab_list:
             summary_total_col,
         ) = st.columns(3)
 
+        if quote_currency == "EUR (€)":
+            selected_cost_text = format_eur(
+                list_total_cost_eur
+            )
+            selected_profit_text = format_eur(
+                profit_eur
+            )
+            selected_total_text = format_eur(
+                quote_total_eur
+            )
+        else:
+            selected_cost_text = format_tl(
+                list_total_cost_tl
+            )
+            selected_profit_text = format_tl(
+                profit_tl
+            )
+            selected_total_text = format_tl(
+                quote_total_tl
+            )
+
         with summary_cost_col:
             st.metric(
                 "Toplam Maliyet",
-                (
-                    f"{format_eur(list_total_cost_eur)} / "
-                    f"{format_tl(list_total_cost_tl)}"
-                ),
+                selected_cost_text,
             )
 
         with summary_profit_col:
             st.metric(
-                f"Kâr (%{format_number(profit_rate_percent, 2)})",
                 (
-                    f"{format_eur(profit_eur)} / "
-                    f"{format_tl(profit_tl)}"
+                    f"Kâr "
+                    f"(%{format_number(profit_rate_percent, 2)})"
                 ),
+                selected_profit_text,
             )
 
         with summary_total_col:
             st.metric(
                 "Maliyet + Kâr",
-                (
-                    f"{format_eur(quote_total_eur)} / "
-                    f"{format_tl(quote_total_tl)}"
-                ),
+                selected_total_text,
             )
 
         quote_ready = bool(
@@ -2601,9 +2654,11 @@ with tab_list:
                     quote_date,
                     quote_number.strip(),
                     email_address,
+                    quote_currency,
                 ),
                 file_name=(
                     f"ITSSystems_{safe_quote_number}_"
+                    f"{'EUR' if quote_currency == 'EUR (€)' else 'TL'}_"
                     f"{quote_date:%Y-%m-%d}.xlsx"
                 ),
                 mime=(
