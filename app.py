@@ -1898,7 +1898,20 @@ with tab_cost:
             format_tl(preview["total_tl"]),
         )
 
-        detail_rows = []
+        detail_rows = [
+            {
+                "Kalem": material["definition"]["ad"],
+                "Miktar": (
+                    f'{format_number(material["weight_kg"], 4)} kg'
+                ),
+                "Maliyet EUR": format_eur(
+                    material["line_eur"]
+                ),
+                "Maliyet TL": format_tl(
+                    material["line_tl"]
+                ),
+            }
+        ]
 
         for operation_row in preview["operation_rows"]:
             amount_text = (
