@@ -6,6 +6,9 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 import streamlit as st
 import xlwt
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from supabase import create_client
 
 
@@ -589,6 +592,394 @@ def build_xls(rate):
     workbook.save(output)
     output.seek(0)
     return output.getvalue()
+
+def build_quote_xlsx(
+    rate,
+    profit_rate_percent,
+    prepared_by,
+    quote_date,
+    quote_number,
+    email_address,
+):
+    frames = build_export_frames(rate)
+    dataframe = frames["Liste"]
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Teklif"
+
+    accent_fill = PatternFill(
+        "solid",
+        fgColor="C00000",
+    )
+    dark_fill = PatternFill(
+        "solid",
+        fgColor="1F2937",
+    )
+    light_fill = PatternFill(
+        "solid",
+        fgColor="E5E7EB",
+    )
+    total_fill = PatternFill(
+        "solid",
+        fgColor="FEE2E2",
+    )
+    white_font = Font(
+        color="FFFFFF",
+        bold=True,
+    )
+    title_font = Font(
+        color="FFFFFF",
+        bold=True,
+        size=16,
+    )
+    label_font = Font(
+        bold=True,
+        color="1F2937",
+    )
+    total_font = Font(
+        bold=True,
+        color="991B1B",
+    )
+    thin_gray = Side(
+        style="thin",
+        color="D1D5DB",
+    )
+    cell_border = Border(
+        left=thin_gray,
+        right=thin_gray,
+        top=thin_gray,
+        bottom=thin_gray,
+    )
+
+    sheet.merge_cells("A1:O1")
+    title_cell = sheet["A1"]
+    title_cell.value = "ITS SYSTEMS – TEKLİF"
+    title_cell.fill = accent_fill
+    title_cell.font = title_font
+    title_cell.alignment = Alignment(
+        horizontal="center",
+        vertical="center",
+    )
+    sheet.row_dimensions[1].height = 30
+
+    # Teklif üst bilgileri
+    metadata = [
+        ("A3", "Teklif Hazırlayan", "B3:D3", prepared_by),
+        ("E3", "E-posta", "F3:I3", email_address),
+        ("J3", "Teklif Tarihi", "K3:L3", quote_date),
+        ("M3", "Teklif Numarası", "N3:O3", quote_number),
+        ("A4", "Kâr Oranı", "B4:D4", float(profit_rate_percent) / 100),
+        ("E4", "EUR/TL Kuru", "F4:I4", float(rate)),
+    ]
+
+    for label_cell, label, value_range, value in metadata:
+        sheet[label_cell] = label
+        sheet[label_cell].font = label_font
+        sheet[label_cell].fill = light_fill
+        sheet[label_cell].border = cell_border
+        sheet[label_cell].alignment = Alignment(
+            vertical="center",
+        )
+
+        sheet.merge_cells(value_range)
+        start_cell = value_range.split(":")[0]
+        sheet[start_cell] = value
+        sheet[start_cell].border = cell_border
+        sheet[start_cell].alignment = Alignment(
+            vertical="center",
+            wrap_text=True,
+        )
+
+        start_col = sheet[start_cell].column
+        end_col = sheet[value_range.split(":")[1]].column
+        row_number = sheet[start_cell].row
+
+        for column_number in range(start_col, end_col + 1):
+            sheet.cell(
+                row=row_number,
+                column=column_number,
+            ).border = cell_border
+
+    sheet["B4"].number_format = "0.00%"
+    sheet["F4"].number_format = '#,##0.0000'
+    sheet["K3"].number_format = "dd.mm.yyyy"
+
+    headers = [
+        "Sıra",
+        "Parça Adı",
+        "Adet",
+        "Ebat (mm)",
+        "Ağırlık (kg)",
+        "İşlemler",
+        "Birim Maliyet EUR",
+        "Birim Maliyet TL",
+        "Toplam Maliyet EUR",
+        "Toplam Maliyet TL",
+        "Kâr Oranı",
+        "Kâr EUR",
+        "Kâr TL",
+        "Teklif Toplam EUR",
+        "Teklif Toplam TL",
+    ]
+    header_row = 7
+
+    for column_index, header in enumerate(headers, start=1):
+        cell = sheet.cell(
+            row=header_row,
+            column=column_index,
+            value=header,
+        )
+        cell.fill = dark_fill
+        cell.font = white_font
+        cell.border = cell_border
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True,
+        )
+
+    data_start_row = header_row + 1
+
+    if dataframe.empty:
+        sheet.merge_cells(
+            start_row=data_start_row,
+            start_column=1,
+            end_row=data_start_row,
+            end_column=15,
+        )
+        empty_cell = sheet.cell(
+            row=data_start_row,
+            column=1,
+            value="Teklife eklenecek kayıtlı parça bulunmuyor.",
+        )
+        empty_cell.alignment = Alignment(
+            horizontal="center",
+        )
+        empty_cell.border = cell_border
+        total_row = data_start_row + 1
+    else:
+        for row_offset, (_, row) in enumerate(
+            dataframe.iterrows(),
+            start=0,
+        ):
+            excel_row = data_start_row + row_offset
+
+            values = [
+                row_offset + 1,
+                str(row["Parça Adı"]),
+                int(row["Adet"]),
+                str(row["Kaba Ebat"]),
+                float(row["Malzeme Ağırlığı (kg)"]),
+                str(row["İşlemler"]),
+                float(row["Birim Fiyat EUR"]),
+                float(row["Birim Fiyat TL"]),
+                float(row["Toplam Fiyat EUR"]),
+                float(row["Toplam Fiyat TL"]),
+            ]
+
+            for column_index, value in enumerate(
+                values,
+                start=1,
+            ):
+                cell = sheet.cell(
+                    row=excel_row,
+                    column=column_index,
+                    value=value,
+                )
+                cell.border = cell_border
+                cell.alignment = Alignment(
+                    vertical="top",
+                    wrap_text=True,
+                )
+
+            sheet.cell(
+                row=excel_row,
+                column=11,
+                value="=$B$4",
+            )
+            sheet.cell(
+                row=excel_row,
+                column=12,
+                value=f"=I{excel_row}*K{excel_row}",
+            )
+            sheet.cell(
+                row=excel_row,
+                column=13,
+                value=f"=J{excel_row}*K{excel_row}",
+            )
+            sheet.cell(
+                row=excel_row,
+                column=14,
+                value=f"=I{excel_row}+L{excel_row}",
+            )
+            sheet.cell(
+                row=excel_row,
+                column=15,
+                value=f"=J{excel_row}+M{excel_row}",
+            )
+
+            for column_index in range(11, 16):
+                cell = sheet.cell(
+                    row=excel_row,
+                    column=column_index,
+                )
+                cell.border = cell_border
+                cell.alignment = Alignment(
+                    vertical="top",
+                )
+
+        total_row = data_start_row + len(dataframe)
+
+    # Genel toplam satırı
+    sheet.merge_cells(
+        start_row=total_row,
+        start_column=1,
+        end_row=total_row,
+        end_column=8,
+    )
+    total_label = sheet.cell(
+        row=total_row,
+        column=1,
+        value="GENEL TOPLAM",
+    )
+    total_label.fill = total_fill
+    total_label.font = total_font
+    total_label.alignment = Alignment(
+        horizontal="right",
+        vertical="center",
+    )
+
+    for column_index in range(1, 16):
+        sheet.cell(
+            row=total_row,
+            column=column_index,
+        ).border = cell_border
+        sheet.cell(
+            row=total_row,
+            column=column_index,
+        ).fill = total_fill
+        sheet.cell(
+            row=total_row,
+            column=column_index,
+        ).font = total_font
+
+    if not dataframe.empty:
+        last_data_row = total_row - 1
+        sheet.cell(
+            row=total_row,
+            column=9,
+            value=f"=SUM(I{data_start_row}:I{last_data_row})",
+        )
+        sheet.cell(
+            row=total_row,
+            column=10,
+            value=f"=SUM(J{data_start_row}:J{last_data_row})",
+        )
+        sheet.cell(
+            row=total_row,
+            column=11,
+            value="=$B$4",
+        )
+        sheet.cell(
+            row=total_row,
+            column=12,
+            value=f"=SUM(L{data_start_row}:L{last_data_row})",
+        )
+        sheet.cell(
+            row=total_row,
+            column=13,
+            value=f"=SUM(M{data_start_row}:M{last_data_row})",
+        )
+        sheet.cell(
+            row=total_row,
+            column=14,
+            value=f"=SUM(N{data_start_row}:N{last_data_row})",
+        )
+        sheet.cell(
+            row=total_row,
+            column=15,
+            value=f"=SUM(O{data_start_row}:O{last_data_row})",
+        )
+
+    # Sayısal biçimler
+    eur_columns = (7, 9, 12, 14)
+    tl_columns = (8, 10, 13, 15)
+
+    for row_number in range(data_start_row, total_row + 1):
+        sheet.cell(
+            row=row_number,
+            column=3,
+        ).number_format = "0"
+        sheet.cell(
+            row=row_number,
+            column=5,
+        ).number_format = "#,##0.0000"
+
+        for column_index in eur_columns:
+            sheet.cell(
+                row=row_number,
+                column=column_index,
+            ).number_format = '#,##0.00 "€"'
+
+        for column_index in tl_columns:
+            sheet.cell(
+                row=row_number,
+                column=column_index,
+            ).number_format = '#,##0.00 "TL"'
+
+        sheet.cell(
+            row=row_number,
+            column=11,
+        ).number_format = "0.00%"
+
+    widths = {
+        "A": 7,
+        "B": 24,
+        "C": 9,
+        "D": 20,
+        "E": 14,
+        "F": 55,
+        "G": 18,
+        "H": 18,
+        "I": 18,
+        "J": 18,
+        "K": 12,
+        "L": 15,
+        "M": 15,
+        "N": 19,
+        "O": 19,
+    }
+
+    for column_letter, width in widths.items():
+        sheet.column_dimensions[column_letter].width = width
+
+    sheet.row_dimensions[header_row].height = 36
+    sheet.freeze_panes = "A8"
+    sheet.auto_filter.ref = (
+        f"A{header_row}:O{max(total_row - 1, header_row)}"
+    )
+    sheet.sheet_view.showGridLines = False
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.print_title_rows = f"1:{header_row}"
+    sheet.print_area = f"A1:O{total_row}"
+
+    # Excel açıldığında formüllerin yeniden hesaplanmasını ister.
+    try:
+        workbook.calculation.fullCalcOnLoad = True
+        workbook.calculation.forceFullCalc = True
+        workbook.calculation.calcMode = "auto"
+    except Exception:
+        pass
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output.getvalue()
+
+
 # =========================================================
 # UYGULAMA VERİLERİ
 # =========================================================
@@ -617,7 +1008,7 @@ render_rate(settings)
         "Fiyat Tanımları",
         "İşçilik Maliyetleri",
         "Parça Maliyeti",
-        "Liste",
+        "Teklif",
     ]
 )
 
@@ -1973,7 +2364,11 @@ with tab_cost:
 # LİSTE
 # =========================================================
 with tab_list:
-    st.subheader("Parça Listesi")
+    st.subheader("Teklif")
+    st.caption(
+        "Kayıtlı parçaların maliyetlerini kontrol et, kâr oranını "
+        "belirle ve teklif dosyasını Excel formatında oluştur."
+    )
 
     deleted_count = st.session_state.pop(
         "deleted_all_parts_count",
@@ -1991,6 +2386,9 @@ with tab_list:
         st.info("Henüz kayıtlı parça bulunmuyor.")
     else:
         list_rows = []
+        list_total_cost_eur = 0.0
+        list_total_cost_tl = 0.0
+
         for part in parts:
             part_id = part["id"]
             quantity = int(part["adet"])
@@ -2048,6 +2446,11 @@ with tab_list:
                     f'{format_number(part["en_mm"], 2)} × '
                     f'{format_number(part["yukseklik_mm"], 2)}'
                 )
+            part_total_eur = single_eur * quantity
+            part_total_tl = single_tl * quantity
+            list_total_cost_eur += part_total_eur
+            list_total_cost_tl += part_total_tl
+
             list_rows.append({
                 "Parça Adı": part["parca_adi"],
                 "Adet": quantity,
@@ -2056,8 +2459,8 @@ with tab_list:
                 "İşlemler": " + ".join(operations),
                 "Birim Fiyat EUR": format_eur(single_eur),
                 "Birim Fiyat TL": format_tl(single_tl),
-                "Toplam Fiyat EUR": format_eur(single_eur * quantity),
-                "Toplam Fiyat TL": format_tl(single_tl * quantity),
+                "Toplam Fiyat EUR": format_eur(part_total_eur),
+                "Toplam Fiyat TL": format_tl(part_total_tl),
             })
 
         st.dataframe(
@@ -2066,20 +2469,151 @@ with tab_list:
             hide_index=True,
         )
 
+        st.divider()
+        st.markdown("### Teklif Bilgileri")
+
+        with st.container(border=True):
+            (
+                quote_col1,
+                quote_col2,
+                quote_col3,
+                quote_col4,
+            ) = st.columns([1.2, 2, 1.5, 1.5])
+
+            with quote_col1:
+                profit_rate_percent = st.number_input(
+                    "Kâr oranı (%)",
+                    min_value=0.0,
+                    value=30.0,
+                    step=1.0,
+                    format="%.2f",
+                    key="quote_profit_rate",
+                )
+
+            with quote_col2:
+                prepared_by = st.text_input(
+                    "Teklif hazırlayan",
+                    value="Erkan Engin",
+                    key="quote_prepared_by",
+                )
+
+            with quote_col3:
+                quote_date = st.date_input(
+                    "Teklif Tarihi",
+                    value=datetime.now().date(),
+                    format="DD.MM.YYYY",
+                    key="quote_date",
+                )
+
+            with quote_col4:
+                quote_number = st.text_input(
+                    "Teklif Numarası",
+                    placeholder="Örn. ITS-2026-001",
+                    key="quote_number",
+                )
+
+            email_address = st.text_input(
+                "E-posta",
+                value="erkan.engin@itssystems.com.tr",
+                disabled=True,
+                key="quote_email",
+            )
+
+        profit_multiplier = (
+            float(profit_rate_percent) / 100
+        )
+        profit_eur = (
+            list_total_cost_eur * profit_multiplier
+        )
+        profit_tl = (
+            list_total_cost_tl * profit_multiplier
+        )
+        quote_total_eur = (
+            list_total_cost_eur + profit_eur
+        )
+        quote_total_tl = (
+            list_total_cost_tl + profit_tl
+        )
+
+        st.markdown("### Teklif Özeti")
+
+        (
+            summary_cost_col,
+            summary_profit_col,
+            summary_total_col,
+        ) = st.columns(3)
+
+        with summary_cost_col:
+            st.metric(
+                "Toplam Maliyet",
+                (
+                    f"{format_eur(list_total_cost_eur)} / "
+                    f"{format_tl(list_total_cost_tl)}"
+                ),
+            )
+
+        with summary_profit_col:
+            st.metric(
+                f"Kâr (%{format_number(profit_rate_percent, 2)})",
+                (
+                    f"{format_eur(profit_eur)} / "
+                    f"{format_tl(profit_tl)}"
+                ),
+            )
+
+        with summary_total_col:
+            st.metric(
+                "Maliyet + Kâr",
+                (
+                    f"{format_eur(quote_total_eur)} / "
+                    f"{format_tl(quote_total_tl)}"
+                ),
+            )
+
+        quote_ready = bool(
+            prepared_by.strip()
+            and quote_number.strip()
+        )
+
+        if not quote_ready:
+            st.info(
+                "Teklif dosyasını indirebilmek için Teklif Hazırlayan "
+                "ve Teklif Numarası alanlarını doldur."
+            )
+
+        safe_quote_number = "".join(
+            character
+            if character.isalnum()
+            or character in {"-", "_"}
+            else "_"
+            for character in quote_number.strip()
+        ) or "Teklif"
+
         download_col, delete_col = st.columns([1, 2])
 
         with download_col:
             st.download_button(
-                "Dosyayı indir (.xls)",
-                data=build_xls(exchange_rate),
-                file_name=(
-                    f"ITSSystems_Cost_Calculator_"
-                    f"{datetime.now():%Y-%m-%d}.xls"
+                "Teklifi indir (.xlsx)",
+                data=build_quote_xlsx(
+                    exchange_rate,
+                    profit_rate_percent,
+                    prepared_by.strip(),
+                    quote_date,
+                    quote_number.strip(),
+                    email_address,
                 ),
-                mime="application/vnd.ms-excel",
+                file_name=(
+                    f"ITSSystems_{safe_quote_number}_"
+                    f"{quote_date:%Y-%m-%d}.xlsx"
+                ),
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
                 type="primary",
-                key="download_cost_list_xls",
+                key="download_quote_xlsx",
                 use_container_width=True,
+                disabled=not quote_ready,
             )
 
         @st.dialog("Tüm listeyi sil")
