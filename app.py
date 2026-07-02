@@ -1991,12 +1991,98 @@ with tab_list:
                 "Toplam Fiyat TL": format_tl(single_tl * quantity),
             })
 
-        st.dataframe(pd.DataFrame(list_rows), use_container_width=True, hide_index=True)
-        st.download_button(
-            "Dosyayı indir (.xls)",
-            data=build_xls(exchange_rate),
-            file_name=f"ITSSystems_Cost_Calculator_{datetime.now():%Y-%m-%d}.xls",
-            mime="application/vnd.ms-excel",
-            type="primary",
-            key="download_cost_list_xls",
+        st.dataframe(
+            pd.DataFrame(list_rows),
+            use_container_width=True,
+            hide_index=True,
         )
+
+        download_col, delete_col = st.columns([1, 2])
+
+        with download_col:
+            st.download_button(
+                "Dosyayı indir (.xls)",
+                data=build_xls(exchange_rate),
+                file_name=(
+                    f"ITSSystems_Cost_Calculator_"
+                    f"{datetime.now():%Y-%m-%d}.xls"
+                ),
+                mime="application/vnd.ms-excel",
+                type="primary",
+                key="download_cost_list_xls",
+                use_container_width=True,
+            )
+
+        with delete_col:
+            with st.expander("Listeden parça sil", expanded=False):
+                delete_options = {}
+                delete_labels = []
+
+                for index, part in enumerate(parts, start=1):
+                    dimensions = ""
+
+                    if all(
+                        part.get(key) is not None
+                        for key in (
+                            "boy_mm",
+                            "en_mm",
+                            "yukseklik_mm",
+                        )
+                    ):
+                        dimensions = (
+                            f' — {format_number(part["boy_mm"], 2)} × '
+                            f'{format_number(part["en_mm"], 2)} × '
+                            f'{format_number(part["yukseklik_mm"], 2)} mm'
+                        )
+
+                    label = (
+                        f'{index}. {part["parca_adi"]} — '
+                        f'{int(part["adet"])} adet'
+                        f'{dimensions}'
+                    )
+
+                    delete_labels.append(label)
+                    delete_options[label] = part["id"]
+
+                selected_delete_labels = st.multiselect(
+                    "Silinecek parçaları seç",
+                    delete_labels,
+                    key="parts_to_delete",
+                )
+
+                confirm_delete = st.checkbox(
+                    "Seçilen parçaların kalıcı olarak silineceğini onaylıyorum.",
+                    key="confirm_parts_delete",
+                )
+
+                if st.button(
+                    "Seçili parçaları sil",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=(
+                        not selected_delete_labels
+                        or not confirm_delete
+                    ),
+                    key="delete_selected_parts",
+                ):
+                    selected_ids = [
+                        delete_options[label]
+                        for label in selected_delete_labels
+                    ]
+
+                    try:
+                        for part_id in selected_ids:
+                            db.table("parcalar").delete().eq(
+                                "id",
+                                part_id,
+                            ).execute()
+
+                        st.success(
+                            f"{len(selected_ids)} parça listeden silindi."
+                        )
+                        st.rerun()
+                    except Exception as error:
+                        st.error(
+                            "Parçalar silinirken bir hata oluştu. "
+                            f"Detay: {error}"
+                        )
