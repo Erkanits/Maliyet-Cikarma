@@ -601,9 +601,39 @@ def build_quote_xlsx(
     quote_number,
     email_address,
     quote_currency,
+    manual_quote_rows,
 ):
     frames = build_export_frames(rate)
-    dataframe = frames["Liste"]
+    dataframe = frames["Liste"].copy()
+    dataframe["_Manuel"] = False
+
+    manual_export_rows = []
+
+    for manual_row in manual_quote_rows:
+        manual_export_rows.append(
+            {
+                "Parça Adı": manual_row["name"],
+                "Adet": manual_row["quantity"],
+                "Kaba Ebat": "",
+                "Malzeme Ağırlığı (kg)": None,
+                "İşlemler": "",
+                "Birim Fiyat EUR": manual_row["unit_eur"],
+                "Birim Fiyat TL": manual_row["unit_tl"],
+                "Toplam Fiyat EUR": manual_row["total_eur"],
+                "Toplam Fiyat TL": manual_row["total_tl"],
+                "Kullanılan EUR/TL Kuru": rate,
+                "_Manuel": True,
+            }
+        )
+
+    if manual_export_rows:
+        dataframe = pd.concat(
+            [
+                dataframe,
+                pd.DataFrame(manual_export_rows),
+            ],
+            ignore_index=True,
+        )
 
     currency_code = (
         "EUR"
@@ -806,21 +836,34 @@ def build_quote_xlsx(
         ):
             excel_row = data_start_row + row_offset
 
-            operations_without_prices = " + ".join(
-                operation.rsplit(" (", 1)[0]
-                for operation in str(
-                    row["İşlemler"]
-                ).split(" + ")
+            is_manual = bool(
+                row.get("_Manuel", False)
             )
+
+            if is_manual:
+                dimensions_value = ""
+                weight_value = None
+                operations_without_prices = ""
+            else:
+                dimensions_value = str(
+                    row["Kaba Ebat"]
+                )
+                weight_value = float(
+                    row["Malzeme Ağırlığı (kg)"]
+                )
+                operations_without_prices = " + ".join(
+                    operation.rsplit(" (", 1)[0]
+                    for operation in str(
+                        row["İşlemler"]
+                    ).split(" + ")
+                )
 
             values = [
                 row_offset + 1,
                 str(row["Parça Adı"]),
                 int(row["Adet"]),
-                str(row["Kaba Ebat"]),
-                float(
-                    row["Malzeme Ağırlığı (kg)"]
-                ),
+                dimensions_value,
+                weight_value,
                 operations_without_prices,
                 float(row[unit_cost_column]),
                 float(row[total_cost_column]),
@@ -2764,6 +2807,351 @@ with tab_list:
             hide_index=True,
         )
 
+        st.markdown("### Ek Teklif Kalemleri")
+        st.caption(
+            "Parça adı/açıklama, adet ve yalnızca bir para "
+            "birimindeki birim fiyatı gir. Diğer para birimi "
+            "mevcut EUR/TL kuruyla otomatik hesaplanır. "
+            "Bu satırlar sayfa yenilendiğinde kaybolur."
+        )
+
+        manual_rows_key = "manual_quote_row_ids"
+        manual_next_key = "manual_quote_next_id"
+
+        if manual_rows_key not in st.session_state:
+            st.session_state[manual_rows_key] = [0]
+            st.session_state[manual_next_key] = 1
+
+        manual_quote_rows = []
+        manual_quote_errors = []
+        manual_total_cost_eur = 0.0
+        manual_total_cost_tl = 0.0
+
+        (
+            manual_header_name,
+            manual_header_quantity,
+            manual_header_dimensions,
+            manual_header_weight,
+            manual_header_operations,
+            manual_header_eur,
+            manual_header_tl,
+            manual_header_total_eur,
+            manual_header_total_tl,
+            manual_header_remove,
+        ) = st.columns(
+            [
+                2.1,
+                0.65,
+                0.9,
+                0.8,
+                0.9,
+                1.05,
+                1.05,
+                1.1,
+                1.1,
+                0.45,
+            ]
+        )
+
+        with manual_header_name:
+            st.markdown("**Parça Adı / Açıklama**")
+        with manual_header_quantity:
+            st.markdown("**Adet**")
+        with manual_header_dimensions:
+            st.markdown("**Ebat**")
+        with manual_header_weight:
+            st.markdown("**Ağırlık**")
+        with manual_header_operations:
+            st.markdown("**İşlemler**")
+        with manual_header_eur:
+            st.markdown("**Birim EUR**")
+        with manual_header_tl:
+            st.markdown("**Birim TL**")
+        with manual_header_total_eur:
+            st.markdown("**Toplam EUR**")
+        with manual_header_total_tl:
+            st.markdown("**Toplam TL**")
+        with manual_header_remove:
+            st.markdown("**Sil**")
+
+        st.divider()
+
+        for manual_row_number, manual_row_id in enumerate(
+            list(st.session_state[manual_rows_key]),
+            start=1,
+        ):
+            (
+                manual_name_col,
+                manual_quantity_col,
+                manual_dimensions_col,
+                manual_weight_col,
+                manual_operations_col,
+                manual_eur_col,
+                manual_tl_col,
+                manual_total_eur_col,
+                manual_total_tl_col,
+                manual_remove_col,
+            ) = st.columns(
+                [
+                    2.1,
+                    0.65,
+                    0.9,
+                    0.8,
+                    0.9,
+                    1.05,
+                    1.05,
+                    1.1,
+                    1.1,
+                    0.45,
+                ],
+                vertical_alignment="center",
+            )
+
+            with manual_name_col:
+                manual_name = st.text_input(
+                    f"Ek kalem {manual_row_number} açıklaması",
+                    key=(
+                        f"manual_quote_name_"
+                        f"{manual_row_id}"
+                    ),
+                    label_visibility="collapsed",
+                    placeholder="Parça adı veya açıklama",
+                )
+
+            with manual_quantity_col:
+                manual_quantity = st.number_input(
+                    f"Ek kalem {manual_row_number} adedi",
+                    min_value=1,
+                    value=1,
+                    step=1,
+                    key=(
+                        f"manual_quote_quantity_"
+                        f"{manual_row_id}"
+                    ),
+                    label_visibility="collapsed",
+                )
+
+            with manual_dimensions_col:
+                st.write("—")
+
+            with manual_weight_col:
+                st.write("—")
+
+            with manual_operations_col:
+                st.write("—")
+
+            with manual_eur_col:
+                manual_unit_eur_input = st.number_input(
+                    f"Ek kalem {manual_row_number} EUR fiyatı",
+                    min_value=0.0,
+                    value=0.0,
+                    step=1.0,
+                    format="%.2f",
+                    key=(
+                        f"manual_quote_unit_eur_"
+                        f"{manual_row_id}"
+                    ),
+                    label_visibility="collapsed",
+                )
+
+            with manual_tl_col:
+                manual_unit_tl_input = st.number_input(
+                    f"Ek kalem {manual_row_number} TL fiyatı",
+                    min_value=0.0,
+                    value=0.0,
+                    step=1.0,
+                    format="%.2f",
+                    key=(
+                        f"manual_quote_unit_tl_"
+                        f"{manual_row_id}"
+                    ),
+                    label_visibility="collapsed",
+                )
+
+            manual_unit_eur = 0.0
+            manual_unit_tl = 0.0
+            manual_total_eur = 0.0
+            manual_total_tl = 0.0
+
+            has_manual_data = bool(
+                manual_name.strip()
+                or float(manual_unit_eur_input) > 0
+                or float(manual_unit_tl_input) > 0
+            )
+
+            row_is_valid = False
+
+            if has_manual_data:
+                if not manual_name.strip():
+                    manual_quote_errors.append(
+                        f"{manual_row_number}. ek kalemde "
+                        "Parça Adı / Açıklama alanı boş."
+                    )
+                elif (
+                    float(manual_unit_eur_input) > 0
+                    and float(manual_unit_tl_input) > 0
+                ):
+                    manual_quote_errors.append(
+                        f"{manual_row_number}. ek kalemde "
+                        "EUR veya TL fiyatından yalnızca birini gir."
+                    )
+                elif (
+                    float(manual_unit_eur_input) <= 0
+                    and float(manual_unit_tl_input) <= 0
+                ):
+                    manual_quote_errors.append(
+                        f"{manual_row_number}. ek kalemde "
+                        "birim fiyat girilmemiş."
+                    )
+                else:
+                    row_is_valid = True
+
+                    if float(manual_unit_eur_input) > 0:
+                        manual_unit_eur = float(
+                            manual_unit_eur_input
+                        )
+                        manual_unit_tl = (
+                            manual_unit_eur
+                            * float(exchange_rate)
+                        )
+                    else:
+                        manual_unit_tl = float(
+                            manual_unit_tl_input
+                        )
+                        manual_unit_eur = (
+                            manual_unit_tl
+                            / float(exchange_rate)
+                        )
+
+                    manual_total_eur = (
+                        manual_unit_eur
+                        * int(manual_quantity)
+                    )
+                    manual_total_tl = (
+                        manual_unit_tl
+                        * int(manual_quantity)
+                    )
+
+                    manual_total_cost_eur += (
+                        manual_total_eur
+                    )
+                    manual_total_cost_tl += (
+                        manual_total_tl
+                    )
+
+                    manual_quote_rows.append(
+                        {
+                            "name": manual_name.strip(),
+                            "quantity": int(
+                                manual_quantity
+                            ),
+                            "unit_eur": manual_unit_eur,
+                            "unit_tl": manual_unit_tl,
+                            "total_eur": manual_total_eur,
+                            "total_tl": manual_total_tl,
+                        }
+                    )
+
+            with manual_total_eur_col:
+                st.write(
+                    format_eur(manual_total_eur)
+                    if row_is_valid
+                    else "—"
+                )
+
+            with manual_total_tl_col:
+                st.write(
+                    format_tl(manual_total_tl)
+                    if row_is_valid
+                    else "—"
+                )
+
+            with manual_remove_col:
+                if st.button(
+                    "✕",
+                    key=(
+                        f"manual_quote_remove_"
+                        f"{manual_row_id}"
+                    ),
+                    help="Bu ek teklif kalemini kaldır",
+                    use_container_width=True,
+                ):
+                    remaining_ids = [
+                        row_id
+                        for row_id in st.session_state[
+                            manual_rows_key
+                        ]
+                        if row_id != manual_row_id
+                    ]
+
+                    if not remaining_ids:
+                        replacement_id = st.session_state[
+                            manual_next_key
+                        ]
+                        remaining_ids = [replacement_id]
+                        st.session_state[
+                            manual_next_key
+                        ] = replacement_id + 1
+
+                    st.session_state[
+                        manual_rows_key
+                    ] = remaining_ids
+
+                    for field_name in (
+                        "name",
+                        "quantity",
+                        "unit_eur",
+                        "unit_tl",
+                        "remove",
+                    ):
+                        st.session_state.pop(
+                            (
+                                f"manual_quote_{field_name}_"
+                                f"{manual_row_id}"
+                            ),
+                            None,
+                        )
+
+                    st.rerun()
+
+            st.divider()
+
+        add_manual_col, manual_info_col = st.columns(
+            [1.2, 3.8]
+        )
+
+        with add_manual_col:
+            if st.button(
+                "+ Yeni Satır Ekle",
+                key="manual_quote_add_row",
+                use_container_width=True,
+            ):
+                new_manual_row_id = st.session_state[
+                    manual_next_key
+                ]
+                st.session_state[
+                    manual_rows_key
+                ].append(new_manual_row_id)
+                st.session_state[
+                    manual_next_key
+                ] = new_manual_row_id + 1
+                st.rerun()
+
+        with manual_info_col:
+            if manual_quote_rows:
+                st.info(
+                    f"{len(manual_quote_rows)} geçerli ek kalem "
+                    f"toplama dahil edildi: "
+                    f"{format_eur(manual_total_cost_eur)} / "
+                    f"{format_tl(manual_total_cost_tl)}"
+                )
+
+        for manual_error in manual_quote_errors:
+            st.warning(manual_error)
+
+        list_total_cost_eur += manual_total_cost_eur
+        list_total_cost_tl += manual_total_cost_tl
+
         st.divider()
         st.markdown("### Teklif Bilgileri")
 
@@ -2895,12 +3283,22 @@ with tab_list:
         quote_ready = bool(
             prepared_by.strip()
             and quote_number.strip()
+            and not manual_quote_errors
         )
 
-        if not quote_ready:
+        if (
+            not prepared_by.strip()
+            or not quote_number.strip()
+        ):
             st.info(
                 "Teklif dosyasını indirebilmek için Teklif Hazırlayan "
                 "ve Teklif Numarası alanlarını doldur."
+            )
+
+        if manual_quote_errors:
+            st.info(
+                "Teklif dosyasını indirebilmek için hatalı ek "
+                "teklif kalemlerini düzelt veya boşalt."
             )
 
         safe_quote_number = "".join(
@@ -2924,6 +3322,7 @@ with tab_list:
                     quote_number.strip(),
                     email_address,
                     quote_currency,
+                    manual_quote_rows,
                 ),
                 file_name=(
                     f"ITSSystems_{safe_quote_number}_"
@@ -2943,8 +3342,8 @@ with tab_list:
         @st.dialog("Tüm listeyi sil")
         def confirm_delete_all_parts():
             st.warning(
-                "Listedeki tüm parçalar ve bu parçalara bağlı maliyet "
-                "kayıtları kalıcı olarak silinecek. Emin misin?"
+                "Listedeki tüm parçalar, bağlı maliyet kayıtları ve "
+                "geçici ek teklif kalemleri silinecek. Emin misin?"
             )
 
             cancel_col, confirm_col = st.columns(2)
@@ -2972,6 +3371,17 @@ with tab_list:
                                 "id",
                                 part["id"],
                             ).execute()
+
+                        for session_key in list(
+                            st.session_state.keys()
+                        ):
+                            if session_key.startswith(
+                                "manual_quote_"
+                            ):
+                                st.session_state.pop(
+                                    session_key,
+                                    None,
+                                )
 
                         st.session_state[
                             "deleted_all_parts_count"
