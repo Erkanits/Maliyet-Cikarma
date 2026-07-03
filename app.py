@@ -1045,156 +1045,425 @@ render_rate(settings)
 with tab_prices:
     st.subheader("Yeni fiyat tanımı")
 
-    with st.form("new_price_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            new_category = st.selectbox(
-                "Kategori", ["Malzeme", "Kaplama", "Ek İşlem"]
-            )
-            new_name = st.text_input("Ad")
-            new_description = st.text_input("Açıklama")
-        with col2:
-            new_currency = st.selectbox("Fiyat para birimi", ["EUR", "TL"])
-            new_price_text = st.text_input(
-                f"Birim fiyat ({new_currency}) — Malzemede kg fiyatı",
-                value="0,00",
-            )
-            new_density_text = st.text_input(
-                "Yoğunluk (g/cm³) — yalnızca malzeme için",
-                value="",
+    base_categories = [
+        "Malzeme",
+        "Kaplama",
+        "Ek İşlem",
+    ]
+
+    existing_categories = sorted(
+        {
+            str(item.get("kategori", "")).strip()
+            for item in prices
+            if str(item.get("kategori", "")).strip()
+        },
+        key=str.casefold,
+    )
+
+    category_lookup = {
+        category.casefold(): category
+        for category in existing_categories
+    }
+
+    price_categories = list(base_categories)
+
+    for category in existing_categories:
+        if category.casefold() not in {
+            item.casefold()
+            for item in price_categories
+        }:
+            price_categories.append(category)
+
+    new_category_option = "➕ Yeni kategori ekle"
+    price_form_version = int(
+        st.session_state.get(
+            "price_form_version",
+            1,
+        )
+    )
+    price_context = f"price_{price_form_version}"
+
+    with st.container(border=True):
+        new_category_choice = st.selectbox(
+            "Kategori",
+            price_categories + [new_category_option],
+            key=f"new_category_choice_{price_context}",
+        )
+
+        custom_category_name = ""
+
+        if new_category_choice == new_category_option:
+            custom_category_name = st.text_input(
+                "Yeni kategori adı",
+                placeholder="Örn. Isıl İşlem, Paketleme, Nakliye",
+                key=f"custom_category_name_{price_context}",
             )
 
-        save_new_price = st.form_submit_button(
-            "Fiyat tanımını kaydet", type="primary"
+        col1, col2 = st.columns(2)
+
+        with col1:
+            new_name = st.text_input(
+                "Ad",
+                key=f"new_price_name_{price_context}",
+            )
+            new_description = st.text_input(
+                "Açıklama",
+                key=f"new_price_description_{price_context}",
+            )
+
+        with col2:
+            new_currency = st.selectbox(
+                "Fiyat para birimi",
+                ["EUR", "TL"],
+                key=f"new_price_currency_{price_context}",
+            )
+            new_price_text = st.text_input(
+                (
+                    f"Birim fiyat ({new_currency}) "
+                    "— Malzemede kg fiyatı"
+                ),
+                value="0,00",
+                key=f"new_price_value_{price_context}",
+            )
+            new_density_text = st.text_input(
+                (
+                    "Yoğunluk (g/cm³) — isteğe bağlı; "
+                    "girildiğinde Malzeme olarak kullanılabilir"
+                ),
+                value="",
+                key=f"new_price_density_{price_context}",
+            )
+
+        save_new_price = st.button(
+            "Fiyat tanımını kaydet",
+            type="primary",
+            key=f"save_new_price_{price_context}",
         )
+
         if save_new_price:
-            new_price = parse_decimal(new_price_text)
-            new_density = parse_decimal(new_density_text, 0)
-            if not new_name.strip():
-                st.error("Ad alanı boş bırakılamaz.")
+            selected_category = (
+                custom_category_name.strip()
+                if new_category_choice
+                == new_category_option
+                else new_category_choice.strip()
+            )
+
+            existing_spelling = category_lookup.get(
+                selected_category.casefold()
+            )
+            if existing_spelling:
+                selected_category = existing_spelling
+
+            new_price = parse_decimal(
+                new_price_text
+            )
+            new_density = parse_decimal(
+                new_density_text,
+                None,
+            )
+
+            if not selected_category:
+                st.error(
+                    "Yeni kategori adını girmelisin."
+                )
+            elif not new_name.strip():
+                st.error(
+                    "Ad alanı boş bırakılamaz."
+                )
             elif new_price is None or new_price < 0:
-                st.error("Geçerli bir fiyat gir.")
-            elif new_category == "Malzeme" and (new_density is None or new_density <= 0):
-                st.error("Malzeme için yoğunluk girmelisin.")
+                st.error(
+                    "Geçerli bir fiyat gir."
+                )
+            elif (
+                new_density_text.strip()
+                and (
+                    new_density is None
+                    or new_density <= 0
+                )
+            ):
+                st.error(
+                    "Yoğunluk girilecekse sıfırdan büyük olmalı."
+                )
             else:
                 eur_snapshot, _ = convert_price(
-                    new_price, new_currency, exchange_rate
+                    new_price,
+                    new_currency,
+                    exchange_rate,
                 )
-                db.table("fiyat_tanimlari").insert({
-                    "kategori": new_category,
-                    "ad": new_name.strip(),
-                    "aciklama": new_description.strip(),
-                    "kaynak_para_birimi": new_currency,
-                    "kaynak_birim_fiyat": new_price,
-                    "birim_fiyat_eur": eur_snapshot,
-                    "yogunluk_g_cm3": (
-                        new_density if new_category == "Malzeme" else None
-                    ),
-                }).execute()
+
+                db.table(
+                    "fiyat_tanimlari"
+                ).insert(
+                    {
+                        "kategori": selected_category,
+                        "ad": new_name.strip(),
+                        "aciklama": (
+                            new_description.strip()
+                        ),
+                        "kaynak_para_birimi": (
+                            new_currency
+                        ),
+                        "kaynak_birim_fiyat": (
+                            new_price
+                        ),
+                        "birim_fiyat_eur": (
+                            eur_snapshot
+                        ),
+                        "yogunluk_g_cm3": (
+                            new_density
+                            if new_density is not None
+                            and new_density > 0
+                            else None
+                        ),
+                    }
+                ).execute()
+
+                st.session_state[
+                    "price_form_version"
+                ] = price_form_version + 1
                 st.rerun()
 
     st.divider()
     st.subheader("Düzenle veya sil")
+
     selected_filter = st.selectbox(
         "Kategoriye göre filtrele",
-        ["Tümü", "Malzeme", "Kaplama", "Ek İşlem"],
+        ["Tümü"] + price_categories,
         key="price_filter",
     )
-    filtered_prices = prices if selected_filter == "Tümü" else [
-        item for item in prices if item["kategori"] == selected_filter
-    ]
+
+    filtered_prices = (
+        prices
+        if selected_filter == "Tümü"
+        else [
+            item
+            for item in prices
+            if item["kategori"] == selected_filter
+        ]
+    )
 
     if not filtered_prices:
-        st.info("Bu filtreye uygun kayıt bulunmuyor.")
+        st.info(
+            "Bu filtreye uygun kayıt bulunmuyor."
+        )
     else:
         for item in filtered_prices:
-            currency, source_value = get_price_source(item)
+            currency, source_value = (
+                get_price_source(item)
+            )
             eur_value, tl_value = convert_price(
-                source_value, currency, exchange_rate
+                source_value,
+                currency,
+                exchange_rate,
             )
             density = get_density(item)
-            title = (
-                f'{item["ad"]} | {item["kategori"]} | '
-                f'{format_eur(eur_value)} / {format_tl(tl_value)}'
-            )
-            if item["kategori"] == "Malzeme":
-                title += f' | {format_number(density, 4)} g/cm³'
 
-            with st.expander(title, expanded=False):
-                with st.form(f'price_edit_form_{item["id"]}'):
+            title = (
+                f'{item["ad"]} | '
+                f'{item["kategori"]} | '
+                f'{format_eur(eur_value)} / '
+                f'{format_tl(tl_value)}'
+            )
+
+            if density > 0:
+                title += (
+                    f' | {format_number(density, 4)} '
+                    f'g/cm³'
+                )
+
+            with st.expander(
+                title,
+                expanded=False,
+            ):
+                with st.form(
+                    f'price_edit_form_{item["id"]}'
+                ):
                     col1, col2 = st.columns(2)
+
                     with col1:
-                        categories = ["Malzeme", "Kaplama", "Ek İşlem"]
+                        edit_categories = list(
+                            price_categories
+                        )
+
+                        if (
+                            item["kategori"]
+                            not in edit_categories
+                        ):
+                            edit_categories.append(
+                                item["kategori"]
+                            )
+
                         edit_category = st.selectbox(
                             "Kategori",
-                            categories,
-                            index=categories.index(item["kategori"]),
+                            edit_categories,
+                            index=edit_categories.index(
+                                item["kategori"]
+                            ),
                         )
-                        edit_name = st.text_input("Ad", value=item["ad"])
+                        edit_name = st.text_input(
+                            "Ad",
+                            value=item["ad"],
+                        )
                         edit_description = st.text_input(
-                            "Açıklama", value=item.get("aciklama", "") or ""
+                            "Açıklama",
+                            value=(
+                                item.get(
+                                    "aciklama",
+                                    "",
+                                )
+                                or ""
+                            ),
                         )
+
                     with col2:
                         edit_currency = st.selectbox(
                             "Fiyat para birimi",
                             ["EUR", "TL"],
-                            index=["EUR", "TL"].index(currency),
+                            index=[
+                                "EUR",
+                                "TL",
+                            ].index(currency),
                         )
                         edit_price_text = st.text_input(
-                            f"Birim fiyat ({edit_currency}) — Malzemede kg fiyatı",
-                            value=format_number(source_value, 4),
+                            (
+                                f"Birim fiyat "
+                                f"({edit_currency}) "
+                                "— Malzemede kg fiyatı"
+                            ),
+                            value=format_number(
+                                source_value,
+                                4,
+                            ),
                         )
                         edit_density_text = st.text_input(
-                            "Yoğunluk (g/cm³) — yalnızca malzeme için",
-                            value=format_number(density, 4) if density > 0 else "",
+                            (
+                                "Yoğunluk (g/cm³) — isteğe bağlı; "
+                                "girildiğinde Malzeme olarak "
+                                "kullanılabilir"
+                            ),
+                            value=(
+                                format_number(
+                                    density,
+                                    4,
+                                )
+                                if density > 0
+                                else ""
+                            ),
                         )
 
-                    update_col, delete_col = st.columns(2)
+                    update_col, delete_col = (
+                        st.columns(2)
+                    )
+
                     with update_col:
-                        update_price = st.form_submit_button(
-                            "Güncelle", type="primary", use_container_width=True
+                        update_price = (
+                            st.form_submit_button(
+                                "Güncelle",
+                                type="primary",
+                                use_container_width=True,
+                            )
                         )
+
                     with delete_col:
-                        delete_price = st.form_submit_button(
-                            "Sil", use_container_width=True
+                        delete_price = (
+                            st.form_submit_button(
+                                "Sil",
+                                use_container_width=True,
+                            )
                         )
 
                     if update_price:
-                        edit_price = parse_decimal(edit_price_text)
-                        edit_density = parse_decimal(edit_density_text, 0)
+                        edit_price = parse_decimal(
+                            edit_price_text
+                        )
+                        edit_density = parse_decimal(
+                            edit_density_text,
+                            None,
+                        )
+
                         if not edit_name.strip():
-                            st.error("Ad alanı boş bırakılamaz.")
-                        elif edit_price is None or edit_price < 0:
-                            st.error("Geçerli bir fiyat gir.")
-                        elif edit_category == "Malzeme" and (
-                            edit_density is None or edit_density <= 0
-                        ):
-                            st.error("Malzeme için yoğunluk girmelisin.")
-                        else:
-                            eur_snapshot, _ = convert_price(
-                                edit_price, edit_currency, exchange_rate
+                            st.error(
+                                "Ad alanı boş bırakılamaz."
                             )
-                            db.table("fiyat_tanimlari").update({
-                                "kategori": edit_category,
-                                "ad": edit_name.strip(),
-                                "aciklama": edit_description.strip(),
-                                "kaynak_para_birimi": edit_currency,
-                                "kaynak_birim_fiyat": edit_price,
-                                "birim_fiyat_eur": eur_snapshot,
-                                "yogunluk_g_cm3": (
-                                    edit_density if edit_category == "Malzeme" else None
-                                ),
-                            }).eq("id", item["id"]).execute()
+                        elif (
+                            edit_price is None
+                            or edit_price < 0
+                        ):
+                            st.error(
+                                "Geçerli bir fiyat gir."
+                            )
+                        elif (
+                            edit_density_text.strip()
+                            and (
+                                edit_density is None
+                                or edit_density <= 0
+                            )
+                        ):
+                            st.error(
+                                "Yoğunluk girilecekse "
+                                "sıfırdan büyük olmalı."
+                            )
+                        else:
+                            eur_snapshot, _ = (
+                                convert_price(
+                                    edit_price,
+                                    edit_currency,
+                                    exchange_rate,
+                                )
+                            )
+
+                            db.table(
+                                "fiyat_tanimlari"
+                            ).update(
+                                {
+                                    "kategori": (
+                                        edit_category
+                                    ),
+                                    "ad": (
+                                        edit_name.strip()
+                                    ),
+                                    "aciklama": (
+                                        edit_description.strip()
+                                    ),
+                                    "kaynak_para_birimi": (
+                                        edit_currency
+                                    ),
+                                    "kaynak_birim_fiyat": (
+                                        edit_price
+                                    ),
+                                    "birim_fiyat_eur": (
+                                        eur_snapshot
+                                    ),
+                                    "yogunluk_g_cm3": (
+                                        edit_density
+                                        if edit_density
+                                        is not None
+                                        and edit_density > 0
+                                        else None
+                                    ),
+                                }
+                            ).eq(
+                                "id",
+                                item["id"],
+                            ).execute()
+
                             st.rerun()
 
                     if delete_price:
                         try:
-                            db.table("fiyat_tanimlari").delete().eq(
-                                "id", item["id"]
+                            db.table(
+                                "fiyat_tanimlari"
+                            ).delete().eq(
+                                "id",
+                                item["id"],
                             ).execute()
                             st.rerun()
                         except Exception:
-                            st.error("Bu kayıt bir parçada kullanıldığı için silinemedi.")
+                            st.error(
+                                "Bu kayıt bir parçada "
+                                "kullanıldığı için silinemedi."
+                            )
+
 # =========================================================
 # İŞÇİLİK MALİYETLERİ
 # =========================================================
@@ -1376,7 +1645,7 @@ with tab_cost:
     materials = [
         item
         for item in prices
-        if item["kategori"] == "Malzeme"
+        if get_density(item) > 0
     ]
     coatings = [
         item
@@ -2853,7 +3122,10 @@ with tab_suppliers:
         existing_material_names = {
             item["ad"].strip().casefold()
             for item in prices
-            if item["kategori"] == "Malzeme"
+            if (
+                item["kategori"] == "Malzeme"
+                or get_density(item) > 0
+            )
         }
 
         (
