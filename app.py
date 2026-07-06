@@ -58,6 +58,26 @@ st.markdown(
         background-color: #bb2d3b !important;
         border-color: #b02a37 !important;
     }
+    .st-key-main_nav div[role="radiogroup"] {
+        display: flex;
+        gap: 1.2rem;
+        border-bottom: 1px solid rgba(250, 250, 250, 0.18);
+        padding-bottom: 0.6rem;
+        margin-bottom: 1.2rem;
+    }
+    .st-key-main_nav div[role="radiogroup"] label {
+        padding: 0.35rem 0 0.55rem 0;
+        border-bottom: 3px solid transparent;
+        cursor: pointer;
+        font-weight: 700;
+    }
+    .st-key-main_nav div[role="radiogroup"] label:has(input:checked) {
+        color: #ff4b4b !important;
+        border-bottom-color: #ff4b4b;
+    }
+    .st-key-main_nav div[role="radiogroup"] label > div:first-child {
+        display: none !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -1065,27 +1085,28 @@ labor_map = {item["id"]: item for item in labors}
 render_header(settings)
 render_rate(settings)
 
-(
-    tab_suppliers,
-    tab_prices,
-    tab_labors,
-    tab_cost,
-    tab_list,
-) = st.tabs(
-    [
-        "Tedarikçi Listesi",
-        "Fiyat Tanımları",
-        "İşçilik Maliyetleri",
-        "Parça Maliyeti",
-        "Teklif",
-    ]
-)
+navigation_options = [
+    "Tedarikçi Listesi",
+    "Fiyat Tanımları",
+    "İşçilik Maliyetleri",
+    "Parça Maliyeti",
+    "Teklif",
+]
+
+with st.container(key="main_nav"):
+    selected_page = st.radio(
+        "Bölüm seç",
+        navigation_options,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="main_navigation",
+    )
 
 
 # =========================================================
 # FİYAT TANIMLARI
 # =========================================================
-with tab_prices:
+if selected_page == "Fiyat Tanımları":
     st.subheader("Yeni fiyat tanımı")
 
     base_categories = [
@@ -1510,7 +1531,7 @@ with tab_prices:
 # =========================================================
 # İŞÇİLİK MALİYETLERİ
 # =========================================================
-with tab_labors:
+if selected_page == "İşçilik Maliyetleri":
     st.subheader("Yeni işçilik maliyeti")
 
     with st.form("new_labor_form", clear_on_submit=True):
@@ -1666,7 +1687,7 @@ with tab_labors:
 # =========================================================
 # PARÇA MALİYETİ
 # =========================================================
-with tab_cost:
+if selected_page == "Parça Maliyeti":
     st.subheader("Parça Maliyeti")
     st.caption(
         "Tüm bilgileri gir. Hesaplama yalnızca Güncelle "
@@ -2859,7 +2880,7 @@ with tab_cost:
 # =========================================================
 # LİSTE
 # =========================================================
-with tab_list:
+if selected_page == "Teklif":
     st.subheader("Teklif")
     st.caption(
         "Kayıtlı parçaların maliyetlerini kontrol et, kâr oranını "
@@ -3564,7 +3585,7 @@ with tab_list:
 # =========================================================
 # TEDARİKÇİ LİSTESİ
 # =========================================================
-with tab_suppliers:
+if selected_page == "Tedarikçi Listesi":
     st.subheader("Tedarikçi Listesi")
 
     with st.expander(
