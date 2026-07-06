@@ -1065,27 +1065,27 @@ labor_map = {item["id"]: item for item in labors}
 render_header(settings)
 render_rate(settings)
 
-navigation_options = [
-    "Tedarikçi Listesi",
-    "Fiyat Tanımları",
-    "İşçilik Maliyetleri",
-    "Parça Maliyeti",
-    "Teklif",
-]
-
-selected_page = st.radio(
-    "Bölüm seç",
-    navigation_options,
-    horizontal=True,
-    label_visibility="collapsed",
-    key="main_navigation",
+(
+    tab_suppliers,
+    tab_prices,
+    tab_labors,
+    tab_cost,
+    tab_list,
+) = st.tabs(
+    [
+        "Tedarikçi Listesi",
+        "Fiyat Tanımları",
+        "İşçilik Maliyetleri",
+        "Parça Maliyeti",
+        "Teklif",
+    ]
 )
 
 
 # =========================================================
 # FİYAT TANIMLARI
 # =========================================================
-if selected_page == "Fiyat Tanımları":
+with tab_prices:
     st.subheader("Yeni fiyat tanımı")
 
     base_categories = [
@@ -1510,7 +1510,7 @@ if selected_page == "Fiyat Tanımları":
 # =========================================================
 # İŞÇİLİK MALİYETLERİ
 # =========================================================
-if selected_page == "İşçilik Maliyetleri":
+with tab_labors:
     st.subheader("Yeni işçilik maliyeti")
 
     with st.form("new_labor_form", clear_on_submit=True):
@@ -1666,7 +1666,7 @@ if selected_page == "İşçilik Maliyetleri":
 # =========================================================
 # PARÇA MALİYETİ
 # =========================================================
-if selected_page == "Parça Maliyeti":
+with tab_cost:
     st.subheader("Parça Maliyeti")
     st.caption(
         "Tüm bilgileri gir. Hesaplama yalnızca Güncelle "
@@ -1701,15 +1701,41 @@ if selected_page == "Parça Maliyeti":
         if item["kategori"] == "Ek İşlem"
     ]
 
+    def is_measurement_labor(item):
+        return "ölçüm" in item["ad"].casefold()
+
+    def is_standard_machining_labor(item):
+        name = item["ad"].casefold()
+
+        is_torna = "torna" in name
+        is_cnc_dik = "cnc" in name and "dik" in name
+        is_five_axis = (
+            ("5" in name or "beş" in name)
+            and "eksen" in name
+        )
+
+        return is_torna or is_cnc_dik or is_five_axis
+
     measurement_labors = [
         item
         for item in labors
-        if "ölçüm" in item["ad"].casefold()
+        if is_measurement_labor(item)
     ]
     machining_labors = [
         item
         for item in labors
-        if "ölçüm" not in item["ad"].casefold()
+        if (
+            not is_measurement_labor(item)
+            and is_standard_machining_labor(item)
+        )
+    ]
+    additional_labors = [
+        item
+        for item in labors
+        if (
+            not is_measurement_labor(item)
+            and not is_standard_machining_labor(item)
+        )
     ]
 
     material_map = {
@@ -1894,9 +1920,10 @@ if selected_page == "Parça Maliyeti":
         st.divider()
         st.markdown("### 2. Talaşlı imalat")
         st.caption(
-            "Tablonun altındaki + işaretiyle birden fazla satır "
-            "ekleyebilirsin. Dakika seçilirse süre otomatik "
-            "olarak saate çevrilir."
+            "Bu tabloda yalnızca CNC Dik İşlem, 5 Eksen CNC "
+            "ve Torna görünür. Diğer işçilikler aşağıda ayrı "
+            "başlıklar halinde otomatik açılır. Dakika seçilirse "
+            "süre otomatik olarak saate çevrilir."
         )
 
         machining_editor = st.data_editor(
@@ -1904,7 +1931,10 @@ if selected_page == "Parça Maliyeti":
             num_rows="dynamic",
             use_container_width=True,
             hide_index=True,
-            key=f"machining_editor_{context_id}",
+            key=(
+                f"machining_editor_{context_id}_"
+                f"{abs(hash(tuple(machining_options)))}"
+            ),
             column_config={
                 "Talaşlı İmalat": st.column_config.SelectboxColumn(
                     "Talaşlı İmalat",
@@ -1934,8 +1964,9 @@ if selected_page == "Parça Maliyeti":
 
         if not machining_options:
             st.info(
-                "İşçilik Maliyetleri bölümünde talaşlı imalat "
-                "kaydı bulunmuyor."
+                "CNC Dik İşlem, 5 Eksen CNC veya Torna kaydı "
+                "bulunmuyor. Bu üç kalemden biri gerekiyorsa "
+                "İşçilik Maliyetleri bölümüne ekleyebilirsin."
             )
 
         st.divider()
@@ -2040,6 +2071,71 @@ if selected_page == "Parça Maliyeti":
                 'Ölçüm seçeneği bulunmuyor. İşçilik Maliyetleri '
                 'bölümüne adı "Ölçüm" içeren bir kayıt '
                 'ekleyebilirsin.'
+            )
+
+        additional_labor_inputs = []
+
+        for additional_index, additional_labor in enumerate(
+            additional_labors,
+            start=6,
+        ):
+            st.divider()
+            st.markdown(
+                f"### {additional_index}. {additional_labor['ad']}"
+            )
+            st.caption(
+                "Bu işçilik bu parçada kullanılacaksa süre gir. "
+                "Süre boş kalırsa maliyete dahil edilmez."
+            )
+
+            (
+                additional_name_col,
+                additional_duration_col,
+                additional_unit_col,
+            ) = st.columns([4, 1, 1])
+
+            with additional_name_col:
+                st.text_input(
+                    "İşçilik",
+                    value=labor_label(
+                        additional_labor["id"],
+                        {additional_labor["id"]: additional_labor},
+                    ),
+                    disabled=True,
+                    key=(
+                        f"additional_labor_display_"
+                        f"{context_id}_{additional_labor['id']}"
+                    ),
+                )
+
+            with additional_duration_col:
+                additional_duration = st.text_input(
+                    "Süre",
+                    value="",
+                    placeholder="Örn. 0,5",
+                    key=(
+                        f"additional_labor_duration_"
+                        f"{context_id}_{additional_labor['id']}"
+                    ),
+                )
+
+            with additional_unit_col:
+                additional_unit = st.selectbox(
+                    "Birim",
+                    ["Saat", "Dakika"],
+                    key=(
+                        f"additional_labor_unit_"
+                        f"{context_id}_{additional_labor['id']}"
+                    ),
+                )
+
+            additional_labor_inputs.append(
+                {
+                    "definition": additional_labor,
+                    "duration": additional_duration,
+                    "unit": additional_unit,
+                    "section_number": additional_index,
+                }
             )
 
         st.divider()
@@ -2151,6 +2247,57 @@ if selected_page == "Parça Maliyeti":
                 "entered_unit": duration_unit,
                 "currency": labor_currency,
                 "source_value": labor_source,
+            }
+        )
+
+    additional_labor_rows = []
+    additional_labor_error = None
+
+    for additional_input in additional_labor_inputs:
+        raw_duration = str(
+            additional_input["duration"] or ""
+        ).strip()
+
+        if not raw_duration:
+            continue
+
+        additional_duration = parse_decimal(
+            raw_duration,
+            None,
+        )
+
+        if (
+            additional_duration is None
+            or additional_duration <= 0
+        ):
+            additional_labor_error = (
+                f"{additional_input['section_number']}. "
+                f"{additional_input['definition']['ad']} "
+                "süresini sıfırdan büyük gir. "
+                "Ondalık için 2,5 veya 2.5 yazabilirsin."
+            )
+            break
+
+        additional_hours = (
+            additional_duration / 60.0
+            if additional_input["unit"] == "Dakika"
+            else additional_duration
+        )
+        (
+            additional_currency,
+            additional_source,
+        ) = get_labor_source(
+            additional_input["definition"]
+        )
+
+        additional_labor_rows.append(
+            {
+                "definition": additional_input["definition"],
+                "hours": additional_hours,
+                "entered_value": additional_duration,
+                "entered_unit": additional_input["unit"],
+                "currency": additional_currency,
+                "source_value": additional_source,
             }
         )
 
@@ -2307,7 +2454,9 @@ if selected_page == "Parça Maliyeti":
                 "line_tl": line_tl,
             }
 
-        for labor_row in machining_rows:
+        for labor_row in (
+            machining_rows + additional_labor_rows
+        ):
             hourly_eur, hourly_tl = convert_price(
                 labor_row["source_value"],
                 labor_row["currency"],
@@ -2379,7 +2528,9 @@ if selected_page == "Parça Maliyeti":
                     labor_row["entered_unit"],
                     round(labor_row["entered_value"], 8),
                 )
-                for labor_row in machining_rows
+                for labor_row in (
+                    machining_rows + additional_labor_rows
+                )
             ),
         )
 
@@ -2432,6 +2583,8 @@ if selected_page == "Parça Maliyeti":
             )
         elif machining_error:
             validation_error = machining_error
+        elif additional_labor_error:
+            validation_error = additional_labor_error
         elif (
             selected_measurement is not None
             and float(measurement_hours) <= 0
@@ -2706,7 +2859,7 @@ if selected_page == "Parça Maliyeti":
 # =========================================================
 # LİSTE
 # =========================================================
-if selected_page == "Teklif":
+with tab_list:
     st.subheader("Teklif")
     st.caption(
         "Kayıtlı parçaların maliyetlerini kontrol et, kâr oranını "
@@ -3411,7 +3564,7 @@ if selected_page == "Teklif":
 # =========================================================
 # TEDARİKÇİ LİSTESİ
 # =========================================================
-if selected_page == "Tedarikçi Listesi":
+with tab_suppliers:
     st.subheader("Tedarikçi Listesi")
 
     with st.expander(
