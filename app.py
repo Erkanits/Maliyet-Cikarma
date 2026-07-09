@@ -1700,6 +1700,12 @@ if selected_page == "Parça Maliyeti":
             "Form yeni parça girişi için sıfırlandı."
         )
 
+    if st.session_state.pop("part_form_cleared", False):
+        st.info(
+            "Hesap ve giriş alanları temizlendi. Yeni parça "
+            "girişi yapabilirsin."
+        )
+
     form_version = int(
         st.session_state.get("part_form_version", 1)
     )
@@ -1852,12 +1858,34 @@ if selected_page == "Parça Maliyeti":
         machining_options.append(label)
         machining_label_map[label] = item
 
+    coating_label_map = {}
+    coating_options = []
+
+    for item in coatings:
+        label = price_label(
+            item["id"],
+            {item["id"]: item},
+        )
+        if label in coating_label_map:
+            label = f'{label} (ID: {item["id"]})'
+        coating_options.append(label)
+        coating_label_map[label] = item
+
     machining_seed = pd.DataFrame(
         [
             {
                 "Talaşlı İmalat": None,
                 "Süre": "",
                 "Birim": "Saat",
+            }
+        ]
+    )
+
+    coating_seed = pd.DataFrame(
+        [
+            {
+                "Kaplama": None,
+                "Adet": 1,
             }
         ]
     )
@@ -1992,28 +2020,44 @@ if selected_page == "Parça Maliyeti":
 
         st.divider()
         st.markdown("### 3. Kaplama")
+        st.caption(
+            "Birden fazla kaplama operasyonu gerekiyorsa "
+            "tablonun altındaki + ile yeni satır ekleyebilirsin."
+        )
 
-        coating_col1, coating_col2 = st.columns([4, 1])
-
-        with coating_col1:
-            selected_coating_id = st.selectbox(
-                "Kaplama",
-                coating_ids,
-                format_func=lambda item_id: price_label(
-                    item_id,
-                    coating_map,
+        coating_editor = st.data_editor(
+            coating_seed,
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            key=(
+                f"coating_editor_{context_id}_"
+                f"{abs(hash(tuple(coating_options)))}"
+            ),
+            column_config={
+                "Kaplama": st.column_config.SelectboxColumn(
+                    "Kaplama",
+                    options=coating_options,
+                    required=False,
+                    width="large",
                 ),
-                disabled=len(coating_ids) == 1,
-                key=f"coating_select_{context_id}",
-            )
+                "Adet": st.column_config.NumberColumn(
+                    "Adet",
+                    min_value=1,
+                    step=1,
+                    format="%d",
+                    width="small",
+                ),
+            },
+            disabled=(
+                len(coating_options) == 0
+            ),
+        )
 
-        with coating_col2:
-            coating_quantity = st.number_input(
-                "Kaplama adedi",
-                min_value=1,
-                value=1,
-                step=1,
-                key=f"coating_quantity_{context_id}",
+        if not coating_options:
+            st.info(
+                "Kaplama seçeneği bulunmuyor. Fiyat Tanımları "
+                "bölümünden Kaplama ekleyebilirsin."
             )
 
         st.divider()
@@ -2160,11 +2204,17 @@ if selected_page == "Parça Maliyeti":
             )
 
         st.divider()
-        update_col, save_col = st.columns(2)
+        update_col, clear_col, save_col = st.columns(3)
 
         with update_col:
             update_clicked = st.form_submit_button(
                 "Güncelle",
+                use_container_width=True,
+            )
+
+        with clear_col:
+            clear_clicked = st.form_submit_button(
+                "Hesabı Temizle",
                 use_container_width=True,
             )
 
@@ -2178,11 +2228,6 @@ if selected_page == "Parça Maliyeti":
     selected_material = (
         material_map.get(selected_material_id)
         if selected_material_id is not None
-        else None
-    )
-    selected_coating = (
-        coating_map.get(selected_coating_id)
-        if selected_coating_id is not None
         else None
     )
     selected_extra = (
@@ -2271,6 +2316,62 @@ if selected_page == "Parça Maliyeti":
             }
         )
 
+    coating_rows = []
+    coating_error = None
+
+    for row_index, row in coating_editor.iterrows():
+        coating_value = row.get("Kaplama")
+        quantity_value = row.get("Adet")
+
+        coating_label = (
+            ""
+            if pd.isna(coating_value)
+            else str(coating_value).strip()
+        )
+
+        if not coating_label:
+            continue
+
+        selected_coating = coating_label_map.get(
+            coating_label
+        )
+
+        if selected_coating is None:
+            coating_error = (
+                f"Kaplama tablosundaki {row_index + 1}. "
+                "satırın kaplama seçimi geçersiz."
+            )
+            break
+
+        coating_quantity_value = parse_decimal(
+            quantity_value,
+            None,
+        )
+
+        if (
+            coating_quantity_value is None
+            or coating_quantity_value <= 0
+        ):
+            coating_error = (
+                f"Kaplama tablosundaki {row_index + 1}. "
+                "satırın adedini sıfırdan büyük gir."
+            )
+            break
+
+        coating_currency, coating_source = get_price_source(
+            selected_coating
+        )
+
+        coating_rows.append(
+            {
+                "definition": selected_coating,
+                "quantity": int(round(coating_quantity_value)),
+                "amount_type": "adet",
+                "currency": coating_currency,
+                "source_value": coating_source,
+            }
+        )
+
     additional_labor_rows = []
     additional_labor_error = None
 
@@ -2336,20 +2437,6 @@ if selected_page == "Parça Maliyeti":
             "length_mm": float(length_mm),
             "width_mm": float(width_mm),
             "height_mm": float(height_mm),
-        }
-
-    coating_row = None
-
-    if selected_coating is not None:
-        coating_currency, coating_source = get_price_source(
-            selected_coating
-        )
-        coating_row = {
-            "definition": selected_coating,
-            "quantity": int(coating_quantity),
-            "amount_type": "adet",
-            "currency": coating_currency,
-            "source_value": coating_source,
         }
 
     extra_row = None
@@ -2425,12 +2512,16 @@ if selected_page == "Parça Maliyeti":
                 "line_tl": line_tl,
             }
 
-        for operation_row in (
-            coating_row,
-            extra_row,
-        ):
-            if operation_row is None:
-                continue
+        operation_rows_to_calculate = list(
+            coating_rows
+        )
+
+        if extra_row is not None:
+            operation_rows_to_calculate.append(
+                extra_row
+            )
+
+        for operation_row in operation_rows_to_calculate:
 
             unit_eur, unit_tl = convert_price(
                 operation_row["source_value"],
@@ -2524,11 +2615,7 @@ if selected_page == "Parça Maliyeti":
                     ),
                     operation_row["amount_type"],
                 )
-                for operation_row in (
-                    coating_row,
-                    extra_row,
-                )
-                if operation_row is not None
+                for operation_row in operation_rows_to_calculate
             ),
             (
                 None
@@ -2575,6 +2662,16 @@ if selected_page == "Parça Maliyeti":
             "signature": signature,
         }
 
+    if clear_clicked:
+        st.session_state.pop(preview_key, None)
+        st.session_state[
+            "part_form_version"
+        ] = form_version + 1
+        st.session_state[
+            "part_form_cleared"
+        ] = True
+        st.rerun()
+
     submitted = update_clicked or save_clicked
     current_draft = create_draft() if submitted else None
 
@@ -2604,6 +2701,8 @@ if selected_page == "Parça Maliyeti":
             )
         elif machining_error:
             validation_error = machining_error
+        elif coating_error:
+            validation_error = coating_error
         elif additional_labor_error:
             validation_error = additional_labor_error
         elif (
