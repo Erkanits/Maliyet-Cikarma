@@ -1718,6 +1718,17 @@ if selected_page == "Parça Maliyeti":
         st.session_state[coating_rows_key] = [0]
         st.session_state[coating_next_id_key] = 1
 
+    if not isinstance(
+        st.session_state.get(coating_rows_key),
+        list,
+    ):
+        st.session_state[coating_rows_key] = [0]
+        st.session_state[coating_next_id_key] = 1
+
+    if not st.session_state[coating_rows_key]:
+        st.session_state[coating_rows_key] = [0]
+        st.session_state[coating_next_id_key] = 1
+
     materials = [
         item
         for item in prices
@@ -2049,7 +2060,7 @@ if selected_page == "Parça Maliyeti":
             with coating_col3:
                 remove_coating_clicked = (
                     st.form_submit_button(
-                        "Sil",
+                        f"Sil {coating_row_number}",
                         use_container_width=True,
                     )
                 )
