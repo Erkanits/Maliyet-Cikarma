@@ -2069,7 +2069,7 @@ if selected_page == "Parça Maliyeti":
 
             with coating_col3:
                 remove_coating_clicked = st.form_submit_button(
-                    f"Sil {coating_row_number}",
+                    f"Kaplama Sil {coating_row_number}",
                     use_container_width=True,
                 )
 
@@ -2199,7 +2199,7 @@ if selected_page == "Parça Maliyeti":
 
             with extra_remove_col:
                 remove_extra_clicked = st.form_submit_button(
-                    f"Sil {extra_row_number}",
+                    f"Ek İşlem Sil {extra_row_number}",
                     use_container_width=True,
                 )
 
