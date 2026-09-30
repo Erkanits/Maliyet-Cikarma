@@ -1112,14 +1112,19 @@ if selected_page == "Fiyat Tanımları":
     base_categories = [
         "Malzeme",
         "Kaplama",
-        "Ek İşlem",
     ]
+
+    hidden_price_categories = {"Ek İşlem"}
 
     existing_categories = sorted(
         {
             str(item.get("kategori", "")).strip()
             for item in prices
-            if str(item.get("kategori", "")).strip()
+            if (
+                str(item.get("kategori", "")).strip()
+                and str(item.get("kategori", "")).strip()
+                not in hidden_price_categories
+            )
         },
         key=str.casefold,
     )
@@ -1705,6 +1710,34 @@ if selected_page == "Parça Maliyeti":
     )
     context_id = f"new_{form_version}"
     preview_key = f"part_preview_{context_id}"
+    coating_rows_key = f"coating_rows_{context_id}"
+    coating_next_id_key = f"coating_next_id_{context_id}"
+    extra_rows_key = f"extra_rows_{context_id}"
+    extra_next_id_key = f"extra_next_id_{context_id}"
+
+    if coating_rows_key not in st.session_state:
+        st.session_state[coating_rows_key] = [0]
+        st.session_state[coating_next_id_key] = 1
+
+    if not isinstance(st.session_state.get(coating_rows_key), list):
+        st.session_state[coating_rows_key] = [0]
+        st.session_state[coating_next_id_key] = 1
+
+    if not st.session_state[coating_rows_key]:
+        st.session_state[coating_rows_key] = [0]
+        st.session_state[coating_next_id_key] = 1
+
+    if extra_rows_key not in st.session_state:
+        st.session_state[extra_rows_key] = [0]
+        st.session_state[extra_next_id_key] = 1
+
+    if not isinstance(st.session_state.get(extra_rows_key), list):
+        st.session_state[extra_rows_key] = [0]
+        st.session_state[extra_next_id_key] = 1
+
+    if not st.session_state[extra_rows_key]:
+        st.session_state[extra_rows_key] = [0]
+        st.session_state[extra_next_id_key] = 1
 
     materials = [
         item
@@ -1992,73 +2025,228 @@ if selected_page == "Parça Maliyeti":
 
         st.divider()
         st.markdown("### 3. Kaplama")
+        st.caption(
+            "Bir üründe birden fazla kaplama olabilir. "
+            "+ Kaplama Ekle ile yeni kaplama satırı açabilirsin."
+        )
 
-        coating_col1, coating_col2 = st.columns([4, 1])
+        coating_inputs = []
 
-        with coating_col1:
-            selected_coating_id = st.selectbox(
-                "Kaplama",
-                coating_ids,
-                format_func=lambda item_id: price_label(
-                    item_id,
-                    coating_map,
-                ),
-                disabled=len(coating_ids) == 1,
-                key=f"coating_select_{context_id}",
+        for coating_row_number, coating_row_id in enumerate(
+            list(st.session_state[coating_rows_key]),
+            start=1,
+        ):
+            coating_col1, coating_col2, coating_col3 = st.columns(
+                [4, 1, 0.8]
             )
 
-        with coating_col2:
-            coating_quantity = st.number_input(
-                "Kaplama adedi",
-                min_value=1,
-                value=1,
-                step=1,
-                key=f"coating_quantity_{context_id}",
+            with coating_col1:
+                selected_coating_id = st.selectbox(
+                    f"Kaplama {coating_row_number}",
+                    coating_ids,
+                    format_func=lambda item_id: price_label(
+                        item_id,
+                        coating_map,
+                    ),
+                    disabled=len(coating_ids) == 1,
+                    key=(
+                        f"coating_select_{context_id}_"
+                        f"{coating_row_id}"
+                    ),
+                )
+
+            with coating_col2:
+                coating_quantity = st.number_input(
+                    "Adet",
+                    min_value=1,
+                    value=1,
+                    step=1,
+                    key=(
+                        f"coating_quantity_{context_id}_"
+                        f"{coating_row_id}"
+                    ),
+                )
+
+            with coating_col3:
+                remove_coating_clicked = st.form_submit_button(
+                    f"Sil {coating_row_number}",
+                    use_container_width=True,
+                )
+
+            if remove_coating_clicked:
+                remaining_rows = [
+                    row_id
+                    for row_id in st.session_state[coating_rows_key]
+                    if row_id != coating_row_id
+                ]
+
+                if not remaining_rows:
+                    replacement_id = st.session_state[
+                        coating_next_id_key
+                    ]
+                    remaining_rows = [replacement_id]
+                    st.session_state[
+                        coating_next_id_key
+                    ] = replacement_id + 1
+
+                st.session_state[coating_rows_key] = remaining_rows
+                st.session_state.pop(preview_key, None)
+                st.rerun()
+
+            coating_inputs.append(
+                {
+                    "selected_id": selected_coating_id,
+                    "quantity": int(coating_quantity),
+                    "row_number": coating_row_number,
+                }
+            )
+
+        add_coating_clicked = st.form_submit_button(
+            "+ Kaplama Ekle",
+            use_container_width=True,
+        )
+
+        if add_coating_clicked:
+            new_coating_row_id = st.session_state[coating_next_id_key]
+            st.session_state[coating_rows_key].append(
+                new_coating_row_id
+            )
+            st.session_state[coating_next_id_key] = (
+                new_coating_row_id + 1
+            )
+            st.session_state.pop(preview_key, None)
+            st.rerun()
+
+        if len(coating_ids) == 1:
+            st.info(
+                "Kaplama seçeneği bulunmuyor. Fiyat Tanımları "
+                "bölümünden Kaplama ekleyebilirsin."
             )
 
         st.divider()
         st.markdown("### 4. Ek işlem")
+        st.caption(
+            "Ek işlemleri bu parça için buraya yaz. Birden fazla "
+            "ek işlem gerekiyorsa + Ek İşlem Ekle ile yeni satır aç."
+        )
 
-        (
-            extra_col1,
-            extra_col2,
-            extra_col3,
-        ) = st.columns([3.5, 1, 1])
+        extra_inputs = []
 
-        with extra_col1:
-            selected_extra_id = st.selectbox(
-                "Ek İşlem",
-                extra_ids,
-                format_func=lambda item_id: price_label(
-                    item_id,
-                    extra_map,
-                ),
-                disabled=len(extra_ids) == 1,
-                key=f"extra_select_{context_id}",
+        for extra_row_number, extra_row_id in enumerate(
+            list(st.session_state[extra_rows_key]),
+            start=1,
+        ):
+            (
+                extra_name_col,
+                extra_price_col,
+                extra_currency_col,
+                extra_unit_col,
+                extra_amount_col,
+                extra_remove_col,
+            ) = st.columns([2.4, 1, 0.8, 0.8, 0.8, 0.6])
+
+            with extra_name_col:
+                extra_name = st.text_input(
+                    f"Ek işlem {extra_row_number}",
+                    placeholder="Örn. Paketleme, özel temizlik, fikstür",
+                    key=(
+                        f"extra_name_{context_id}_"
+                        f"{extra_row_id}"
+                    ),
+                )
+
+            with extra_price_col:
+                extra_price_text = st.text_input(
+                    "Birim fiyat",
+                    value="",
+                    placeholder="Örn. 15",
+                    key=(
+                        f"extra_price_{context_id}_"
+                        f"{extra_row_id}"
+                    ),
+                )
+
+            with extra_currency_col:
+                extra_currency = st.selectbox(
+                    "Para",
+                    ["EUR", "TL"],
+                    key=(
+                        f"extra_currency_{context_id}_"
+                        f"{extra_row_id}"
+                    ),
+                )
+
+            with extra_unit_col:
+                extra_unit = st.selectbox(
+                    "Birim",
+                    ["Adet", "Saat"],
+                    key=(
+                        f"extra_unit_{context_id}_"
+                        f"{extra_row_id}"
+                    ),
+                )
+
+            with extra_amount_col:
+                extra_amount_text = st.text_input(
+                    "Miktar",
+                    value="",
+                    placeholder="Örn. 1",
+                    key=(
+                        f"extra_amount_{context_id}_"
+                        f"{extra_row_id}"
+                    ),
+                )
+
+            with extra_remove_col:
+                remove_extra_clicked = st.form_submit_button(
+                    f"Sil {extra_row_number}",
+                    use_container_width=True,
+                )
+
+            if remove_extra_clicked:
+                remaining_rows = [
+                    row_id
+                    for row_id in st.session_state[extra_rows_key]
+                    if row_id != extra_row_id
+                ]
+
+                if not remaining_rows:
+                    replacement_id = st.session_state[
+                        extra_next_id_key
+                    ]
+                    remaining_rows = [replacement_id]
+                    st.session_state[
+                        extra_next_id_key
+                    ] = replacement_id + 1
+
+                st.session_state[extra_rows_key] = remaining_rows
+                st.session_state.pop(preview_key, None)
+                st.rerun()
+
+            extra_inputs.append(
+                {
+                    "name": extra_name,
+                    "price_text": extra_price_text,
+                    "currency": extra_currency,
+                    "unit": extra_unit,
+                    "amount_text": extra_amount_text,
+                    "row_number": extra_row_number,
+                }
             )
 
-        with extra_col2:
-            extra_unit = st.selectbox(
-                "Birim",
-                ["Adet", "Saat"],
-                key=f"extra_unit_{context_id}",
-            )
+        add_extra_clicked = st.form_submit_button(
+            "+ Ek İşlem Ekle",
+            use_container_width=True,
+        )
 
-        with extra_col3:
-            extra_amount = st.number_input(
-                "Miktar",
-                min_value=0.0,
-                value=1.0,
-                step=0.25,
-                format="%.4f",
-                key=f"extra_amount_{context_id}",
+        if add_extra_clicked:
+            new_extra_row_id = st.session_state[extra_next_id_key]
+            st.session_state[extra_rows_key].append(new_extra_row_id)
+            st.session_state[extra_next_id_key] = (
+                new_extra_row_id + 1
             )
-
-        if len(extra_ids) == 1:
-            st.caption(
-                "Ek İşlem seçeneği bulunmuyor. Fiyat Tanımları "
-                "bölümünden Ek İşlem ekleyebilirsin."
-            )
+            st.session_state.pop(preview_key, None)
+            st.rerun()
 
         st.divider()
         st.markdown("### 5. Ölçüm")
@@ -2180,21 +2368,94 @@ if selected_page == "Parça Maliyeti":
         if selected_material_id is not None
         else None
     )
-    selected_coating = (
-        coating_map.get(selected_coating_id)
-        if selected_coating_id is not None
-        else None
-    )
-    selected_extra = (
-        extra_map.get(selected_extra_id)
-        if selected_extra_id is not None
-        else None
-    )
     selected_measurement = (
         measurement_map.get(selected_measurement_id)
         if selected_measurement_id is not None
         else None
     )
+
+    manual_extra_rows = []
+    extra_error = None
+
+    for extra_input in extra_inputs:
+        extra_name = str(extra_input["name"] or "").strip()
+        raw_price = str(extra_input["price_text"] or "").strip()
+        raw_amount = str(extra_input["amount_text"] or "").strip()
+
+        if not extra_name and not raw_price and not raw_amount:
+            continue
+
+        if not extra_name:
+            extra_error = (
+                f"Ek işlem {extra_input['row_number']} için ad yaz."
+            )
+            break
+
+        extra_price = parse_decimal(raw_price, None)
+        if extra_price is None or extra_price < 0:
+            extra_error = (
+                f"Ek işlem {extra_input['row_number']} için "
+                "geçerli bir birim fiyat gir."
+            )
+            break
+
+        extra_amount = parse_decimal(raw_amount, None)
+        if extra_amount is None or extra_amount <= 0:
+            extra_error = (
+                f"Ek işlem {extra_input['row_number']} için "
+                "miktarı sıfırdan büyük gir."
+            )
+            break
+
+        manual_extra_rows.append(
+            {
+                "manual_extra": True,
+                "definition": {
+                    "id": None,
+                    "ad": extra_name,
+                },
+                "quantity": float(extra_amount),
+                "amount_type": (
+                    "adet"
+                    if extra_input["unit"] == "Adet"
+                    else "saat"
+                ),
+                "currency": extra_input["currency"],
+                "source_value": float(extra_price),
+            }
+        )
+
+    coating_rows = []
+    coating_error = None
+
+    for coating_input in coating_inputs:
+        selected_coating_id = coating_input["selected_id"]
+
+        if selected_coating_id is None:
+            continue
+
+        selected_coating = coating_map.get(selected_coating_id)
+
+        if selected_coating is None:
+            coating_error = (
+                f"Kaplama {coating_input['row_number']} seçimi "
+                "geçersiz."
+            )
+            break
+
+        coating_currency, coating_source = get_price_source(
+            selected_coating
+        )
+
+        coating_rows.append(
+            {
+                "definition": selected_coating,
+                "quantity": int(coating_input["quantity"]),
+                "amount_type": "adet",
+                "currency": coating_currency,
+                "source_value": coating_source,
+            }
+        )
 
     machining_rows = []
     machining_error = None
@@ -2338,38 +2599,6 @@ if selected_page == "Parça Maliyeti":
             "height_mm": float(height_mm),
         }
 
-    coating_row = None
-
-    if selected_coating is not None:
-        coating_currency, coating_source = get_price_source(
-            selected_coating
-        )
-        coating_row = {
-            "definition": selected_coating,
-            "quantity": int(coating_quantity),
-            "amount_type": "adet",
-            "currency": coating_currency,
-            "source_value": coating_source,
-        }
-
-    extra_row = None
-
-    if selected_extra is not None:
-        extra_currency, extra_source = get_price_source(
-            selected_extra
-        )
-        extra_row = {
-            "definition": selected_extra,
-            "quantity": float(extra_amount),
-            "amount_type": (
-                "adet"
-                if extra_unit == "Adet"
-                else "saat"
-            ),
-            "currency": extra_currency,
-            "source_value": extra_source,
-        }
-
     measurement_row = None
 
     if selected_measurement is not None:
@@ -2425,12 +2654,10 @@ if selected_page == "Parça Maliyeti":
                 "line_tl": line_tl,
             }
 
-        for operation_row in (
-            coating_row,
-            extra_row,
-        ):
-            if operation_row is None:
-                continue
+        operation_rows_to_calculate = list(coating_rows)
+        operation_rows_to_calculate.extend(manual_extra_rows)
+
+        for operation_row in operation_rows_to_calculate:
 
             unit_eur, unit_tl = convert_price(
                 operation_row["source_value"],
@@ -2513,22 +2740,21 @@ if selected_page == "Parça Maliyeti":
             ),
             tuple(
                 (
-                    int(
-                        operation_row[
-                            "definition"
-                        ]["id"]
-                    ),
-                    round(
-                        float(operation_row["quantity"]),
-                        8,
-                    ),
+                    "manual",
+                    operation_row["definition"]["ad"],
+                    round(float(operation_row["quantity"]), 8),
+                    operation_row["amount_type"],
+                    operation_row["currency"],
+                    round(float(operation_row["source_value"]), 8),
+                )
+                if operation_row.get("manual_extra")
+                else (
+                    "defined",
+                    int(operation_row["definition"]["id"]),
+                    round(float(operation_row["quantity"]), 8),
                     operation_row["amount_type"],
                 )
-                for operation_row in (
-                    coating_row,
-                    extra_row,
-                )
-                if operation_row is not None
+                for operation_row in operation_rows_to_calculate
             ),
             (
                 None
@@ -2604,6 +2830,10 @@ if selected_page == "Parça Maliyeti":
             )
         elif machining_error:
             validation_error = machining_error
+        elif coating_error:
+            validation_error = coating_error
+        elif extra_error:
+            validation_error = extra_error
         elif additional_labor_error:
             validation_error = additional_labor_error
         elif (
@@ -2612,13 +2842,6 @@ if selected_page == "Parça Maliyeti":
         ):
             validation_error = (
                 "Ölçüm süresini sıfırdan büyük gir."
-            )
-        elif (
-            selected_extra is not None
-            and float(extra_amount) <= 0
-        ):
-            validation_error = (
-                "Ek işlem miktarını sıfırdan büyük gir."
             )
 
     if validation_error:
@@ -2697,12 +2920,42 @@ if selected_page == "Parça Maliyeti":
                     exchange_rate,
                 )
 
+                if operation_row.get("manual_extra"):
+                    extra_definition_result = db.table(
+                        "fiyat_tanimlari"
+                    ).insert(
+                        {
+                            "kategori": "Ek İşlem",
+                            "ad": operation_row[
+                                "definition"
+                            ]["ad"],
+                            "aciklama": (
+                                "Parça Maliyeti içinde "
+                                "manuel ek işlem olarak girildi."
+                            ),
+                            "kaynak_para_birimi": operation_row[
+                                "currency"
+                            ],
+                            "kaynak_birim_fiyat": operation_row[
+                                "source_value"
+                            ],
+                            "birim_fiyat_eur": eur_snapshot,
+                            "yogunluk_g_cm3": None,
+                        }
+                    ).execute()
+
+                    operation_definition_id = (
+                        extra_definition_result.data[0]["id"]
+                    )
+                else:
+                    operation_definition_id = operation_row[
+                        "definition"
+                    ]["id"]
+
                 item_rows_to_save.append(
                     {
                         "parca_id": part_id,
-                        "fiyat_tanimi_id": operation_row[
-                            "definition"
-                        ]["id"],
+                        "fiyat_tanimi_id": operation_definition_id,
                         "miktar": operation_row["quantity"],
                         "miktar_turu": operation_row[
                             "amount_type"
@@ -2754,6 +3007,10 @@ if selected_page == "Parça Maliyeti":
                 ).insert(labor_rows_to_save).execute()
 
             st.session_state.pop(preview_key, None)
+            st.session_state.pop(coating_rows_key, None)
+            st.session_state.pop(coating_next_id_key, None)
+            st.session_state.pop(extra_rows_key, None)
+            st.session_state.pop(extra_next_id_key, None)
             st.session_state[
                 "part_form_version"
             ] = form_version + 1
