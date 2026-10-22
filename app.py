@@ -1752,6 +1752,25 @@ if selected_page == "Parça Maliyeti":
         st.session_state[extra_rows_key] = [0]
         st.session_state[extra_next_id_key] = 1
 
+    top_col1, top_col2 = st.columns([3, 1])
+
+    with top_col1:
+        part_name = st.text_input(
+            "Parça adı",
+            key=f"part_name_{context_id}",
+        )
+
+    with top_col2:
+        production_quantity = st.number_input(
+            "Üretilecek adet",
+            min_value=1,
+            value=1,
+            step=1,
+            key=f"production_quantity_{context_id}",
+        )
+
+    st.markdown("### 1. Malzeme ve ölçüler")
+
     material_type = st.selectbox(
         "Malzeme hesaplama türü",
         ["Malzeme", "Profil"],
@@ -1926,24 +1945,6 @@ if selected_page == "Parça Maliyeti":
         key=f"part_cost_form_{context_id}",
         clear_on_submit=False,
     ):
-        top_col1, top_col2 = st.columns([3, 1])
-
-        with top_col1:
-            part_name = st.text_input(
-                "Parça adı",
-                key=f"part_name_{context_id}",
-            )
-
-        with top_col2:
-            production_quantity = st.number_input(
-                "Üretilecek adet",
-                min_value=1,
-                value=1,
-                step=1,
-                key=f"production_quantity_{context_id}",
-            )
-
-        st.markdown("### 1. Malzeme ve ölçüler")
 
         if material_type == "Profil":
             material_col, length_col = st.columns([3, 1.4])
