@@ -499,6 +499,8 @@ def build_export_frames(rate):
 
             if amount_type == "kg":
                 amount_text = f"{format_number(amount, 4)} kg"
+            elif amount_type == "metre":
+                amount_text = f"{format_number(amount, 3)} metre"
             elif amount_type == "saat":
                 amount_text = f"{format_number(amount, 4)} saat"
             else:
@@ -543,7 +545,12 @@ def build_export_frames(rate):
             })
 
         dimensions = ""
-        if all(part.get(key) is not None for key in ("boy_mm", "en_mm", "yukseklik_mm")):
+        if (part.get("boy_mm") is not None and
+                part.get("en_mm") is None and
+                part.get("yukseklik_mm") is None):
+            dimensions = f'{format_number(part["boy_mm"], 2)} mm (Profil)'
+        elif all(part.get(key) is not None for key in
+                 ("boy_mm", "en_mm", "yukseklik_mm")):
             dimensions = (
                 f'{format_number(part["boy_mm"], 2)} × '
                 f'{format_number(part["en_mm"], 2)} × '
@@ -554,7 +561,10 @@ def build_export_frames(rate):
             "Parça Adı": part["parca_adi"],
             "Adet": quantity,
             "Kaba Ebat": dimensions,
-            "Malzeme Ağırlığı (kg)": float(part.get("malzeme_agirlik_kg") or 0),
+            "Malzeme Ağırlığı (kg)": (
+                None if dimensions.endswith("(Profil)")
+                else float(part.get("malzeme_agirlik_kg") or 0)
+            ),
             "İşlemler": " + ".join(operations),
             "Birim Fiyat EUR": single_eur,
             "Birim Fiyat TL": single_tl,
@@ -868,8 +878,9 @@ def build_quote_xlsx(
                 dimensions_value = str(
                     row["Kaba Ebat"]
                 )
-                weight_value = float(
-                    row["Malzeme Ağırlığı (kg)"]
+                weight_raw = row["Malzeme Ağırlığı (kg)"]
+                weight_value = (
+                    None if pd.isna(weight_raw) else float(weight_raw)
                 )
                 operations_without_prices = " + ".join(
                     operation.rsplit(" (", 1)[0]
@@ -1111,6 +1122,7 @@ if selected_page == "Fiyat Tanımları":
 
     base_categories = [
         "Malzeme",
+        "Profil",
         "Kaplama",
     ]
 
@@ -1186,22 +1198,29 @@ if selected_page == "Fiyat Tanımları":
                 ["EUR", "TL"],
                 key=f"new_price_currency_{price_context}",
             )
+            is_new_profile = (
+                (custom_category_name.strip() if
+                 new_category_choice == new_category_option
+                 else new_category_choice).casefold() == "profil"
+            )
+            price_unit_label = (
+                "metre fiyatı (€/m veya TL/m)" if is_new_profile
+                else "Malzemede kg fiyatı"
+            )
             new_price_text = st.text_input(
-                (
-                    f"Birim fiyat ({new_currency}) "
-                    "— Malzemede kg fiyatı"
-                ),
+                f"Birim fiyat ({new_currency}) — {price_unit_label}",
                 value="0,00",
                 key=f"new_price_value_{price_context}",
             )
-            new_density_text = st.text_input(
-                (
-                    "Yoğunluk (g/cm³) — isteğe bağlı; "
-                    "girildiğinde Malzeme olarak kullanılabilir"
-                ),
-                value="",
-                key=f"new_price_density_{price_context}",
-            )
+            if is_new_profile:
+                st.caption("Profil için yoğunluk gerekmez; fiyat metre başınadır.")
+                new_density_text = ""
+            else:
+                new_density_text = st.text_input(
+                    "Yoğunluk (g/cm³) — isteğe bağlı",
+                    value="",
+                    key=f"new_price_density_{price_context}",
+                )
 
         save_new_price = st.button(
             "Fiyat tanımını kaydet",
@@ -1334,7 +1353,9 @@ if selected_page == "Fiyat Tanımları":
                 f'{format_tl(tl_value)}'
             )
 
-            if density > 0:
+            if item["kategori"] == "Profil":
+                title += " / metre"
+            elif density > 0:
                 title += (
                     f' | {format_number(density, 4)} '
                     f'g/cm³'
@@ -1393,32 +1414,24 @@ if selected_page == "Fiyat Tanımları":
                                 "TL",
                             ].index(currency),
                         )
+                        is_edit_profile = edit_category == "Profil"
                         edit_price_text = st.text_input(
                             (
-                                f"Birim fiyat "
-                                f"({edit_currency}) "
-                                "— Malzemede kg fiyatı"
+                                f"Birim fiyat ({edit_currency}) — "
+                                + ("metre fiyatı" if is_edit_profile
+                                   else "Malzemede kg fiyatı")
                             ),
-                            value=format_number(
-                                source_value,
-                                4,
-                            ),
+                            value=format_number(source_value, 4),
                         )
-                        edit_density_text = st.text_input(
-                            (
-                                "Yoğunluk (g/cm³) — isteğe bağlı; "
-                                "girildiğinde Malzeme olarak "
-                                "kullanılabilir"
-                            ),
-                            value=(
-                                format_number(
-                                    density,
-                                    4,
-                                )
-                                if density > 0
-                                else ""
-                            ),
-                        )
+                        if is_edit_profile:
+                            st.caption("Profilde metre fiyatı kullanılır, yoğunluk aranmaz.")
+                            edit_density_text = ""
+                        else:
+                            edit_density_text = st.text_input(
+                                "Yoğunluk (g/cm³) — isteğe bağlı",
+                                value=(format_number(density, 4)
+                                       if density > 0 else ""),
+                            )
 
                     update_col, delete_col = (
                         st.columns(2)
@@ -1739,10 +1752,17 @@ if selected_page == "Parça Maliyeti":
         st.session_state[extra_rows_key] = [0]
         st.session_state[extra_next_id_key] = 1
 
+    material_type = st.selectbox(
+        "Malzeme hesaplama türü",
+        ["Malzeme", "Profil"],
+        key=f"material_kind_{context_id}",
+        help=("Malzeme: kg üzerinden hesaplanır. "
+              "Profil: metre fiyatı ile kullanılan boy çarpılır."),
+    )
+
     materials = [
-        item
-        for item in prices
-        if item["kategori"] == "Malzeme"
+        item for item in prices
+        if item["kategori"] == material_type
     ]
     coatings = [
         item
@@ -1827,8 +1847,13 @@ if selected_page == "Parça Maliyeti":
             currency,
             exchange_rate,
         )
+        if item["kategori"] == "Profil":
+            return (
+                f'{item["ad"]} — '
+                f'{format_eur(eur_value)}/m / '
+                f'{format_tl(tl_value)}/m'
+            )
         density = get_density(item)
-
         return (
             f'{item["ad"]} — '
             f'{format_eur(eur_value)}/kg / '
@@ -1920,12 +1945,12 @@ if selected_page == "Parça Maliyeti":
 
         st.markdown("### 1. Malzeme ve ölçüler")
 
-        (
-            material_col,
-            length_col,
-            width_col,
-            height_col,
-        ) = st.columns([2.8, 1, 1, 1.15])
+        if material_type == "Profil":
+            material_col, length_col = st.columns([3, 1.4])
+        else:
+            material_col, length_col, width_col, height_col = (
+                st.columns([2.8, 1, 1, 1.15])
+            )
 
         with material_col:
             selected_material_id = st.selectbox(
@@ -1946,30 +1971,29 @@ if selected_page == "Parça Maliyeti":
                 key=f"length_mm_{context_id}",
             )
 
-        with width_col:
-            width_mm = st.number_input(
-                "En (mm)",
-                min_value=0.0,
-                value=0.0,
-                step=1.0,
-                format="%.3f",
-                key=f"width_mm_{context_id}",
+        width_mm = 0.0
+        height_mm = 0.0
+        if material_type != "Profil":
+            with width_col:
+                width_mm = st.number_input(
+                    "En (mm)", min_value=0.0, value=0.0,
+                    step=1.0, format="%.3f",
+                    key=f"width_mm_{context_id}",
+                )
+            with height_col:
+                height_mm = st.number_input(
+                    "Yükseklik / Kalınlık (mm)",
+                    min_value=0.0, value=0.0,
+                    step=1.0, format="%.3f",
+                    key=f"height_mm_{context_id}",
+                )
+            st.caption("Ağırlık ve kg maliyeti Güncelle ile hesaplanır.")
+        else:
+            st.caption(
+                "Profil: Boy (mm) / 1000 × metre fiyatı. "
+                "Yoğunluk, en ve yükseklik kullanılmaz. "
+                "Hesaplama yalnızca Güncelle ile yapılır."
             )
-
-        with height_col:
-            height_mm = st.number_input(
-                "Yükseklik / Kalınlık (mm)",
-                min_value=0.0,
-                value=0.0,
-                step=1.0,
-                format="%.3f",
-                key=f"height_mm_{context_id}",
-            )
-
-        st.caption(
-            "Malzeme bedeli ve ağırlık Güncelle butonundan "
-            "sonra hesaplanır."
-        )
 
         st.divider()
         st.markdown("### 2. Talaşlı imalat")
@@ -2594,6 +2618,7 @@ if selected_page == "Parça Maliyeti":
             "currency": material_currency,
             "source_value": material_source,
             "density": get_density(selected_material),
+            "pricing_type": material_type,
             "length_mm": float(length_mm),
             "width_mm": float(width_mm),
             "height_mm": float(height_mm),
@@ -2624,30 +2649,39 @@ if selected_page == "Parça Maliyeti":
         calculated_labors = []
 
         if material_row is not None:
-            (
-                volume_mm3,
-                volume_cm3,
-                weight_kg,
-            ) = calculate_rectangular_material(
-                material_row["length_mm"],
-                material_row["width_mm"],
-                material_row["height_mm"],
-                material_row["density"],
-            )
+            is_profile = material_row["pricing_type"] == "Profil"
+            if is_profile:
+                volume_mm3 = 0.0
+                volume_cm3 = 0.0
+                weight_kg = None
+                billed_quantity = material_row["length_mm"] / 1000.0
+                quantity_type = "metre"
+            else:
+                (volume_mm3, volume_cm3, weight_kg) = (
+                    calculate_rectangular_material(
+                        material_row["length_mm"],
+                        material_row["width_mm"],
+                        material_row["height_mm"],
+                        material_row["density"],
+                    )
+                )
+                billed_quantity = weight_kg
+                quantity_type = "kg"
 
             unit_eur, unit_tl = convert_price(
                 material_row["source_value"],
-                material_row["currency"],
-                exchange_rate,
+                material_row["currency"], exchange_rate,
             )
-            line_eur = unit_eur * weight_kg
-            line_tl = unit_tl * weight_kg
+            line_eur = unit_eur * billed_quantity
+            line_tl = unit_tl * billed_quantity
             single_eur += line_eur
             single_tl += line_tl
 
             calculated_material = {
                 **material_row,
                 "weight_kg": weight_kg,
+                "quantity": billed_quantity,
+                "quantity_type": quantity_type,
                 "volume_mm3": volume_mm3,
                 "volume_cm3": volume_cm3,
                 "line_eur": line_eur,
@@ -2732,6 +2766,7 @@ if selected_page == "Parça Maliyeti":
                 if material_row is None
                 else (
                     int(material_row["definition"]["id"]),
+                    material_row["pricing_type"],
                     round(material_row["length_mm"], 6),
                     round(material_row["width_mm"], 6),
                     round(material_row["height_mm"], 6),
@@ -2811,19 +2846,22 @@ if selected_page == "Parça Maliyeti":
             validation_error = "Parça adı boş bırakılamaz."
         elif selected_material is None:
             validation_error = "Bir malzeme seçmelisin."
-        elif material_row["density"] <= 0:
+        elif (material_type != "Profil"
+              and material_row["density"] <= 0):
             validation_error = (
                 "Seçilen malzemenin yoğunluğu tanımlanmamış. "
                 "Fiyat Tanımları bölümünden yoğunluğu güncelle."
             )
-        elif any(
-            value <= 0
-            for value in (
+        elif (material_type == "Profil"
+              and material_row["length_mm"] <= 0):
+            validation_error = "Profil boyunu mm cinsinden sıfırdan büyük gir."
+        elif (material_type != "Profil" and any(
+            value <= 0 for value in (
                 material_row["length_mm"],
                 material_row["width_mm"],
                 material_row["height_mm"],
             )
-        ):
+        )):
             validation_error = (
                 "Boy, en ve yükseklik değerlerinin tamamını "
                 "sıfırdan büyük gir."
@@ -2876,11 +2914,15 @@ if selected_page == "Parça Maliyeti":
                         "production_quantity"
                     ],
                     "boy_mm": material["length_mm"],
-                    "en_mm": material["width_mm"],
-                    "yukseklik_mm": material["height_mm"],
-                    "malzeme_agirlik_kg": material[
-                        "weight_kg"
-                    ],
+                    "en_mm": (
+                        None if material["pricing_type"] == "Profil"
+                        else material["width_mm"]
+                    ),
+                    "yukseklik_mm": (
+                        None if material["pricing_type"] == "Profil"
+                        else material["height_mm"]
+                    ),
+                    "malzeme_agirlik_kg": material["weight_kg"],
                 }
             ).execute()
 
@@ -2899,8 +2941,8 @@ if selected_page == "Parça Maliyeti":
                     "fiyat_tanimi_id": material[
                         "definition"
                     ]["id"],
-                    "miktar": material["weight_kg"],
-                    "miktar_turu": "kg",
+                    "miktar": material["quantity"],
+                    "miktar_turu": material["quantity_type"],
                     "kaynak_para_birimi": material[
                         "currency"
                     ],
@@ -3037,12 +3079,19 @@ if selected_page == "Parça Maliyeti":
                     f'/ {format_tl(material["line_tl"])}'
                 ),
             )
-            st.caption(
-                f'(Hammadde ağırlığı: '
-                f'{format_number(material["weight_kg"], 4)} kg, '
-                f'hacim: '
-                f'{format_number(material["volume_cm3"], 2)} cm³)'
-            )
+            if material["pricing_type"] == "Profil":
+                st.caption(
+                    f'(Profil boyu: {format_number(material["length_mm"], 2)} mm '
+                    f'= {format_number(material["quantity"], 3)} metre; '
+                    f'metre fiyatı × metre)'
+                )
+            else:
+                st.caption(
+                    f'(Hammadde ağırlığı: '
+                    f'{format_number(material["weight_kg"], 4)} kg, '
+                    f'hacim: '
+                    f'{format_number(material["volume_cm3"], 2)} cm³)'
+                )
 
         with single_col:
             st.metric(
@@ -3067,6 +3116,8 @@ if selected_page == "Parça Maliyeti":
             {
                 "Kalem": material["definition"]["ad"],
                 "Miktar": (
+                    f'{format_number(material["quantity"], 3)} metre'
+                    if material["pricing_type"] == "Profil" else
                     f'{format_number(material["weight_kg"], 4)} kg'
                 ),
                 "Maliyet EUR": format_eur(
@@ -3187,6 +3238,8 @@ if selected_page == "Teklif":
                 single_tl += line_tl
                 if amount_type == "kg":
                     amount_text = f"{format_number(amount, 4)} kg"
+                elif amount_type == "metre":
+                    amount_text = f"{format_number(amount, 3)} metre"
                 elif amount_type == "saat":
                     amount_text = f"{format_number(amount, 4)} saat"
                 else:
@@ -3214,7 +3267,12 @@ if selected_page == "Teklif":
                 )
 
             dimensions = ""
-            if all(part.get(key) is not None for key in ("boy_mm", "en_mm", "yukseklik_mm")):
+            if (part.get("boy_mm") is not None and
+                    part.get("en_mm") is None and
+                    part.get("yukseklik_mm") is None):
+                dimensions = f'{format_number(part["boy_mm"], 2)} mm (Profil)'
+            elif all(part.get(key) is not None for key in
+                     ("boy_mm", "en_mm", "yukseklik_mm")):
                 dimensions = (
                     f'{format_number(part["boy_mm"], 2)} × '
                     f'{format_number(part["en_mm"], 2)} × '
@@ -3229,7 +3287,10 @@ if selected_page == "Teklif":
                 "Parça Adı": part["parca_adi"],
                 "Adet": quantity,
                 "Ebat (mm)": dimensions,
-                "Ağırlık (kg)": format_number(part.get("malzeme_agirlik_kg") or 0, 4),
+                "Ağırlık (kg)": (
+                    "—" if dimensions.endswith("(Profil)")
+                    else format_number(part.get("malzeme_agirlik_kg") or 0, 4)
+                ),
                 "İşlemler": " + ".join(operations),
                 "Birim Fiyat EUR": format_eur(single_eur),
                 "Birim Fiyat TL": format_tl(single_tl),
